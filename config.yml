@@ -1,0 +1,7 @@
+tunnel: <PASTE-YOUR-TUNNEL-ID-HERE>
+credentials-file: C:\Users\George\.cloudflared\<TUNNEL-ID>.json
+
+ingress:
+  - hostname: db.mentalreps.work
+    service: tcp://localhost:5432
+  - service: http_status:404
