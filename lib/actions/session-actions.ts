@@ -10,6 +10,7 @@
 // settled. Flagging rather than guessing.
 
 import { db } from "../db";
+import { getCurrentRole } from "@/lib/role";
 
 export async function createSessionOnDate(clientId: string, dateISO: string) {
   let program = await db.program.findFirst({
@@ -38,4 +39,70 @@ export async function createSessionOnDate(clientId: string, dateISO: string) {
   });
 
   return session.id;
+}
+
+export async function moveSessionToDate(
+  sessionId: string,
+  targetDateKey: string // "YYYY-MM-DD"
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { role, coach } = await getCurrentRole();
+    if (role !== "coach" || !coach) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const session = await db.session.findFirst({
+      where: {
+        id: sessionId,
+        program: { client: { coachId: coach.id } },
+      },
+    });
+    if (!session) return { success: false, error: "Session not found" };
+
+    const [y, m, d] = targetDateKey.split("-").map(Number);
+    const targetDate = new Date(y, m - 1, d, 12, 0, 0);
+
+    await db.session.update({
+      where: { id: sessionId },
+      data: { date: targetDate },
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message ?? "Unknown error" };
+  }
+}
+
+export async function deleteSessionsByIds(
+  sessionIds: string[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { role, coach } = await getCurrentRole();
+    if (role !== "coach" || !coach) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    // Null out LoggedSet FKs first to avoid FK constraint errors
+    await db.loggedSet.updateMany({
+      where: { sessionId: { in: sessionIds } },
+      data: { sessionId: null, sessionExerciseId: null },
+    });
+
+    // Delete session exercises
+    await db.sessionExercise.deleteMany({
+      where: { sessionId: { in: sessionIds } },
+    });
+
+    // Delete sessions (verify they belong to this coach)
+    await db.session.deleteMany({
+      where: {
+        id: { in: sessionIds },
+        program: { client: { coachId: coach.id } },
+      },
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message ?? "Unknown error" };
+  }
 }
