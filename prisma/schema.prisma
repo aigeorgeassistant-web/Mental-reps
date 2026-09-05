@@ -68,19 +68,21 @@ model Client {
   loggedSets        LoggedSet[]
   invites           ClientInvite[]
   templatePurchases TemplatePurchase[]
+  checkIns          CheckIn[]
 }
 
 // The shared exercise catalog.
 model Exercise {
-  id           String         @id @default(cuid())
-  name         String         @unique
-  gifUrl       String?
-  youtubeUrl   String?
-  cues         String?
-  muscleGroups String[]
-  equipment    String[]
-  source       ExerciseSource @default(SHEET)
-  createdAt    DateTime       @default(now())
+  id              String         @id @default(cuid())
+  name            String         @unique
+  gifUrl          String?
+  youtubeUrl      String?
+  cues            String?
+  muscleGroups    String[]
+  equipment       String[]
+  lowerIsBetter   Boolean        @default(false)
+  source          ExerciseSource @default(SHEET)
+  createdAt       DateTime       @default(now())
 
   sessionExercises SessionExercise[]
   loggedSets       LoggedSet[]
@@ -118,6 +120,7 @@ model Session {
 
   sessionExercises SessionExercise[]
   loggedSets       LoggedSet[]
+  checkIn          CheckIn?
 }
 
 // One exercise placed within a Session.
@@ -189,17 +192,29 @@ model ClientInvite {
 
 // Template purchases — tracks which client bought which template.
 model TemplatePurchase {
-  id         String   @id @default(cuid())
-  templateId String
-  clientId   String
+  id          String   @id @default(cuid())
+  templateId  String
+  clientId    String
   purchasedAt DateTime @default(now())
-  pricePaid  Decimal
-  currency   String
-  template   Program  @relation(fields: [templateId], references: [id])
-  client     Client   @relation(fields: [clientId], references: [id])
+  pricePaid   Decimal
+  currency    String
+  template    Program  @relation(fields: [templateId], references: [id])
+  client      Client   @relation(fields: [clientId], references: [id])
 }
 
-// EQUIPMENT_TAXONOMY = [
-//   "Barbell", "Dumbbell", "Machine", "Cable",
-//   "Bands", "Kettlebell", "Bench", "Other",
-// ]
+// Post-workout check-in — one per session, optional.
+// sleep/mood/hydration/stress are 1-5 scales.
+// Future: AI reads this alongside LoggedSet data for recommendations.
+model CheckIn {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  sessionId String?  @unique
+  session   Session? @relation(fields: [sessionId], references: [id])
+  date      DateTime @default(now())
+  sleep     Int?     // 1-5
+  mood      Int?     // 1-5
+  hydration Int?     // 1-5
+  stress    Int?     // 1-5
+  notes     String?
+}
