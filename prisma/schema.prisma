@@ -64,9 +64,10 @@ model Client {
   units         Units    @default(KG)
   createdAt     DateTime @default(now())
 
-  programs   Program[]
-  loggedSets LoggedSet[]
-  invites    ClientInvite[]
+  programs          Program[]
+  loggedSets        LoggedSet[]
+  invites           ClientInvite[]
+  templatePurchases TemplatePurchase[]
 }
 
 // The shared exercise catalog.
@@ -87,16 +88,22 @@ model Exercise {
 
 // A reusable template (isTemplate=true) OR a live client program.
 model Program {
-  id         String   @id @default(cuid())
-  coachId    String
-  coach      Coach    @relation(fields: [coachId], references: [id])
-  clientId   String?
-  client     Client?  @relation(fields: [clientId], references: [id])
-  name       String
-  isTemplate Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id          String   @id @default(cuid())
+  coachId     String
+  coach       Coach    @relation(fields: [coachId], references: [id])
+  clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id])
+  name        String
+  isTemplate  Boolean  @default(false)
+  price       Decimal?
+  currency    String?  @default("KWD")
+  category    String?
+  description String?
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
 
-  sessions Session[]
+  sessions          Session[]
+  templatePurchases TemplatePurchase[]
 }
 
 // One "day" within a Program.
@@ -156,17 +163,16 @@ model LoggedSet {
   session           Session? @relation(fields: [sessionId], references: [id])
   sessionExerciseId String?
   sessionExercise   SessionExercise? @relation(fields: [sessionExerciseId], references: [id])
-  setIndex          Int      @default(0) // 0-based, which set number in the exercise
+  setIndex          Int      @default(0)
   date              DateTime @default(now())
   weight            Float?
   reps              Int?
   distance          Float?
   duration          Int?
-  notes             String?  // client's note for this set
+  notes             String?
   rpe               Float?
   isPr              Boolean  @default(false)
 
-  // Unique per set slot — enables upsert (overwrite on re-log)
   @@unique([sessionExerciseId, setIndex])
 }
 
@@ -179,6 +185,18 @@ model ClientInvite {
   createdAt DateTime  @default(now())
   expiresAt DateTime
   usedAt    DateTime?
+}
+
+// Template purchases — tracks which client bought which template.
+model TemplatePurchase {
+  id         String   @id @default(cuid())
+  templateId String
+  clientId   String
+  purchasedAt DateTime @default(now())
+  pricePaid  Decimal
+  currency   String
+  template   Program  @relation(fields: [templateId], references: [id])
+  client     Client   @relation(fields: [clientId], references: [id])
 }
 
 // EQUIPMENT_TAXONOMY = [
