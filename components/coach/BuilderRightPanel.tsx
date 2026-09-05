@@ -8,6 +8,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Exercise } from "@prisma/client";
+import { TaxonomyPicker } from "@/components/coach/TaxonomyPicker";
+import { MUSCLE_TAXONOMY, EQUIPMENT_TAXONOMY } from "@/lib/taxonomy";
 import { copySessionToClient } from "@/lib/actions/copy-session-action";
 import {
   previewTemplateApplication,
@@ -24,15 +26,6 @@ type TemplateRow = { id: string; name: string; sessions: TemplateSession[] };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const MUSCLE_GROUPS = [
-  "Chest", "Back", "Shoulders", "Biceps", "Triceps",
-  "Forearms", "Core", "Glutes", "Quads", "Hamstrings",
-  "Calves", "Full Body", "Cardio",
-];
-const EQUIPMENT_OPTIONS = [
-  "Barbell", "Dumbbell", "Machine", "Cable",
-  "Bands", "Kettlebell", "Bench", "Other",
-];
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -178,25 +171,11 @@ function EditExerciseForm({ exercise, onDone }: { exercise: Exercise; onDone: ()
       </div>
       <div>
         <label className="text-xs text-neutral-500 mb-1 block">Muscle Groups</label>
-        <div className="flex flex-wrap gap-1">
-          {MUSCLE_GROUPS.map((mg) => (
-            <button key={mg} onClick={() => setMuscleGroups(toggleItem(muscleGroups, mg))}
-              className={`rounded px-2 py-0.5 text-xs border transition-colors ${muscleGroups.includes(mg) ? "bg-neutral-800 text-white border-neutral-800" : "text-neutral-600 border-neutral-300 hover:border-neutral-500"}`}>
-              {mg}
-            </button>
-          ))}
-        </div>
+        <TaxonomyPicker taxonomy={MUSCLE_TAXONOMY} selected={muscleGroups} onChange={setMuscleGroups} />
       </div>
       <div>
         <label className="text-xs text-neutral-500 mb-1 block">Equipment</label>
-        <div className="flex flex-wrap gap-1">
-          {EQUIPMENT_OPTIONS.map((eq) => (
-            <button key={eq} onClick={() => setEquipment(toggleItem(equipment, eq))}
-              className={`rounded px-2 py-0.5 text-xs border transition-colors ${equipment.includes(eq) ? "bg-neutral-800 text-white border-neutral-800" : "text-neutral-600 border-neutral-300 hover:border-neutral-500"}`}>
-              {eq}
-            </button>
-          ))}
-        </div>
+        <TaxonomyPicker taxonomy={EQUIPMENT_TAXONOMY} selected={equipment} onChange={setEquipment} />
       </div>
       <div>
         <label className="text-xs text-neutral-500 mb-1 block">Cues</label>
