@@ -997,6 +997,7 @@ function RowLine({
   index,
   selected,
   locked,
+  optimistic,
   onMouseDown,
   onMouseEnter,
   onDragOver,
