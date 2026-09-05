@@ -1160,7 +1160,7 @@ function DetailsModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function goNext(e: React.KeyboardEvent<HTMLInputElement>, next: React.RefObject<HTMLInputElement> | null) {
+  function goNext(e: React.KeyboardEvent<HTMLInputElement>, next: React.RefObject<HTMLInputElement | null> | null) {
     if (e.key !== "Enter") return;
     e.preventDefault();
     if (next?.current) {
