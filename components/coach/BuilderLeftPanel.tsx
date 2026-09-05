@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import type { Client, Exercise, Program, Session, SessionExercise } from "@prisma/client";
 import { createSessionOnDate, moveSessionToDate, deleteSessionsByIds } from "@/lib/actions/session-actions";
 import { AddExerciseForm } from "@/components/coach/AddExerciseForm";
+import { TaxonomyFilter } from "@/components/coach/TaxonomyPicker";
+import { MUSCLE_TAXONOMY, EQUIPMENT_TAXONOMY } from "@/lib/taxonomy";
 import { copySessionToClient } from "@/lib/actions/copy-session-action";
 import {
   createTemplateProgram,
@@ -56,6 +58,7 @@ export function BuilderLeftPanel({
   const [exercisesView, setExercisesView] = useState<ExercisesView>("list");
   const [search, setSearch] = useState("");
   const [muscleFilter, setMuscleFilter] = useState<string[]>([]);
+  const [equipFilter, setEquipFilter] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [dropStatus, setDropStatus] = useState<string | null>(null);
@@ -63,7 +66,6 @@ export function BuilderLeftPanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
 
-  // Template builder state
   const [templateMode, setTemplateMode] = useState<TemplateModeState | null>(null);
   const [templateSessions, setTemplateSessions] = useState<TemplateSessionRow[]>([]);
   const [weekCount, setWeekCount] = useState(1);
@@ -97,24 +99,20 @@ export function BuilderLeftPanel({
     return map;
   }, [sessions]);
 
-  // All unique muscle groups across exercises
-  const allMuscleGroups = useMemo(() => {
-    const set = new Set<string>();
-    for (const ex of exercises) {
-      for (const mg of ex.muscleGroups) set.add(mg);
-    }
-    return [...set].sort();
-  }, [exercises]);
+  const hasActiveFilter = muscleFilter.length > 0 || equipFilter.length > 0;
 
   const filteredExercises = useMemo(() => {
     let list = exercises;
     const q = search.trim().toLowerCase();
     if (q) list = list.filter((e) => e.name.toLowerCase().includes(q));
     if (muscleFilter.length > 0) {
-      list = list.filter((e) => muscleFilter.every((mg) => e.muscleGroups.includes(mg)));
+      list = list.filter((e) => muscleFilter.some((mg) => e.muscleGroups.includes(mg)));
+    }
+    if (equipFilter.length > 0) {
+      list = list.filter((e) => equipFilter.some((eq) => e.equipment.includes(eq)));
     }
     return list;
-  }, [exercises, search, muscleFilter]);
+  }, [exercises, search, muscleFilter, equipFilter]);
 
   function handleDayClick(dateKey: string) {
     if (deleteMode) return;
@@ -125,13 +123,8 @@ export function BuilderLeftPanel({
     });
   }
 
-  async function handleDropOnCalendar(
-    sessionId: string,
-    sourceClientId: string,
-    targetDateKey: string
-  ) {
+  async function handleDropOnCalendar(sessionId: string, sourceClientId: string, targetDateKey: string) {
     if (deleteMode) return;
-    // Same client = move
     if (sourceClientId === clientId) {
       setDropStatus("Moving…");
       const result = await moveSessionToDate(sessionId, targetDateKey);
@@ -145,7 +138,6 @@ export function BuilderLeftPanel({
       }
       return;
     }
-    // Different client = copy
     setDropStatus("Copying…");
     const result = await copySessionToClient(sessionId, clientId, targetDateKey);
     if (result.success) {
@@ -159,10 +151,7 @@ export function BuilderLeftPanel({
   }
 
   function handleChipClick(sessionId: string) {
-    if (!deleteMode) {
-      onSelectSession(sessionId);
-      return;
-    }
+    if (!deleteMode) { onSelectSession(sessionId); return; }
     setSelectedIds((prev) =>
       prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId]
     );
@@ -183,10 +172,9 @@ export function BuilderLeftPanel({
     }
   }
 
-  function exitDeleteMode() {
-    setDeleteMode(false);
-    setSelectedIds([]);
-  }
+  function exitDeleteMode() { setDeleteMode(false); setSelectedIds([]); }
+
+  function clearFilters() { setMuscleFilter([]); setEquipFilter([]); }
 
   async function handleCreateTemplate() {
     if (!templateName.trim()) return;
@@ -220,12 +208,6 @@ export function BuilderLeftPanel({
     onExitTemplateMode();
   }
 
-  function toggleMuscleFilter(mg: string) {
-    setMuscleFilter((prev) =>
-      prev.includes(mg) ? prev.filter((x) => x !== mg) : [...prev, mg]
-    );
-  }
-
   return (
     <div className="w-1/4 border-r flex flex-col">
       <div className="p-4 border-b flex items-center justify-between">
@@ -257,10 +239,7 @@ export function BuilderLeftPanel({
             disabled={isPending}
             deleteMode={deleteMode}
             selectedIds={selectedIds}
-            onToggleDeleteMode={() => {
-              if (deleteMode) exitDeleteMode();
-              else setDeleteMode(true);
-            }}
+            onToggleDeleteMode={() => { if (deleteMode) exitDeleteMode(); else setDeleteMode(true); }}
             onDeleteSelected={handleDeleteSelected}
             deleting={deleting}
           />
@@ -322,49 +301,69 @@ export function BuilderLeftPanel({
 
         {tab === "exercises" && exercisesView === "list" && (
           <div>
-            <div className="flex items-center gap-2 mb-2">
+            {/* Search + Filter + Add row */}
+            <div className="flex items-center gap-1 mb-2">
               <input
                 type="text"
                 placeholder="Search exercises..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="flex-1 rounded border px-2 py-1 text-sm"
+                className="flex-1 rounded border px-2 py-1 text-sm min-w-0"
               />
-              <button
-                onClick={() => setShowFilters((v) => !v)}
-                className={`shrink-0 rounded border px-2 py-1 text-xs transition-colors ${muscleFilter.length > 0 ? "bg-green-500 text-white border-green-500" : "text-neutral-500 hover:bg-neutral-100"}`}
-                title="Filter by muscle group"
-              >
-                Filter
-              </button>
+              {/* Filter toggle + X */}
+              <div className="flex items-center shrink-0">
+                <button
+                  onClick={() => setShowFilters((v) => !v)}
+                  className={`rounded-l border px-2 py-1 text-xs transition-colors ${
+                    hasActiveFilter
+                      ? "bg-green-500 text-white border-green-500"
+                      : "text-neutral-500 border-neutral-300 hover:bg-neutral-100"
+                  }`}
+                >
+                  Filter
+                </button>
+                {hasActiveFilter && (
+                  <button
+                    onClick={clearFilters}
+                    className="rounded-r border-t border-r border-b border-green-500 bg-green-500 text-white px-1.5 py-1 text-xs hover:bg-green-600 transition-colors"
+                    title="Clear filters"
+                  >
+                    ×
+                  </button>
+                )}
+                {!hasActiveFilter && (
+                  <div className="rounded-r border-t border-r border-b border-neutral-300 px-1.5 py-1 text-xs text-neutral-300">
+                    ×
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => setExercisesView("add")}
                 className="shrink-0 rounded bg-neutral-800 text-white px-2 py-1 text-xs hover:bg-neutral-700"
-                title="Add new exercise"
               >
                 + Add
               </button>
             </div>
 
+            {/* Filter panel */}
             {showFilters && (
-              <div className="flex flex-wrap gap-1 mb-3">
-                {allMuscleGroups.map((mg) => (
-                  <button
-                    key={mg}
-                    onClick={() => toggleMuscleFilter(mg)}
-                    className={`rounded-full px-2 py-0.5 text-[10px] border transition-colors ${muscleFilter.includes(mg) ? "bg-green-500 text-white border-green-500" : "text-neutral-500 border-neutral-200 hover:bg-neutral-100"}`}
-                  >
-                    {mg}
-                  </button>
-                ))}
-                {muscleFilter.length > 0 && (
-                  <button
-                    onClick={() => setMuscleFilter([])}
-                    className="rounded-full px-2 py-0.5 text-[10px] border border-red-200 text-red-400 hover:bg-red-50"
-                  >
-                    Clear
-                  </button>
-                )}
+              <div className="mb-3 border rounded p-2 bg-neutral-50 flex flex-col gap-3">
+                <div>
+                  <p className="text-[10px] font-medium text-neutral-500 mb-1 uppercase tracking-wide">Muscle Groups</p>
+                  <TaxonomyFilter
+                    taxonomy={MUSCLE_TAXONOMY}
+                    selected={muscleFilter}
+                    onChange={setMuscleFilter}
+                  />
+                </div>
+                <div className="border-t pt-2">
+                  <p className="text-[10px] font-medium text-neutral-500 mb-1 uppercase tracking-wide">Equipment</p>
+                  <TaxonomyFilter
+                    taxonomy={EQUIPMENT_TAXONOMY}
+                    selected={equipFilter}
+                    onChange={setEquipFilter}
+                  />
+                </div>
               </div>
             )}
 
@@ -389,18 +388,9 @@ export function BuilderLeftPanel({
   );
 }
 
-function TemplateBuilder({
-  templateMode, templateSessions, weekCount, addingDay,
-  onAddWeek, onAddDay, onSelectDay, onExit,
-}: {
-  templateMode: TemplateModeState;
-  templateSessions: TemplateSessionRow[];
-  weekCount: number;
-  addingDay: boolean;
-  onAddWeek: () => void;
-  onAddDay: (weekNumber: number) => void;
-  onSelectDay: (sessionId: string) => void;
-  onExit: () => void;
+function TemplateBuilder({ templateMode, templateSessions, weekCount, addingDay, onAddWeek, onAddDay, onSelectDay, onExit }: {
+  templateMode: TemplateModeState; templateSessions: TemplateSessionRow[]; weekCount: number; addingDay: boolean;
+  onAddWeek: () => void; onAddDay: (weekNumber: number) => void; onSelectDay: (sessionId: string) => void; onExit: () => void;
 }) {
   const sessionsByWeek = useMemo(() => {
     const map = new Map<number, TemplateSessionRow[]>();
@@ -416,7 +406,7 @@ function TemplateBuilder({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-medium text-neutral-700 truncate">📋 {templateMode.name}</p>
-        <button onClick={onExit} className="shrink-0 text-xs text-neutral-400 hover:text-neutral-700" title="Exit template builder">✕</button>
+        <button onClick={onExit} className="shrink-0 text-xs text-neutral-400 hover:text-neutral-700">✕</button>
       </div>
       {Array.from({ length: weekCount }, (_, i) => i + 1).map((weekNum) => {
         const days = (sessionsByWeek.get(weekNum) ?? []).sort((a, b) => a.order - b.order);
@@ -428,9 +418,7 @@ function TemplateBuilder({
                 {addingDay ? "…" : "+ Day"}
               </button>
             </div>
-            {days.length === 0 ? (
-              <p className="text-[10px] text-neutral-300 pl-2">No days yet</p>
-            ) : (
+            {days.length === 0 ? <p className="text-[10px] text-neutral-300 pl-2">No days yet</p> : (
               days.map((day) => (
                 <button key={day.id} onClick={() => onSelectDay(day.id)} className="w-full text-left rounded px-2 py-1.5 text-xs hover:bg-neutral-100 flex items-center justify-between group">
                   <span>{day.dayLabel}</span>
@@ -454,11 +442,9 @@ function NameTemplateForm({ value, onChange, onConfirm, onCancel, loading }: {
   return (
     <div className="border rounded p-3 flex flex-col gap-2">
       <p className="text-xs font-medium">New Template</p>
-      <input
-        type="text" value={value} onChange={(e) => onChange(e.target.value)}
+      <input type="text" value={value} onChange={(e) => onChange(e.target.value)}
         placeholder="e.g. 3×/week Strength" className="w-full rounded border px-2 py-1 text-sm"
-        autoFocus onKeyDown={(e) => { if (e.key === "Enter") onConfirm(); if (e.key === "Escape") onCancel(); }}
-      />
+        autoFocus onKeyDown={(e) => { if (e.key === "Enter") onConfirm(); if (e.key === "Escape") onCancel(); }} />
       <div className="flex gap-2">
         <button onClick={onConfirm} disabled={loading || !value.trim()} className="flex-1 rounded bg-neutral-800 text-white py-1 text-xs hover:bg-neutral-700 disabled:opacity-50">
           {loading ? "Creating…" : "Create"}
@@ -489,24 +475,13 @@ function EmptyState({ text }: { text: string }) {
   return <p className="text-xs text-neutral-400">{text}</p>;
 }
 
-function MonthCalendar({
-  monthCursor, setMonthCursor, sessionsByDateKey, currentClientId,
-  onDayClick, onChipClick, onDropSession, disabled,
-  deleteMode, selectedIds, onToggleDeleteMode, onDeleteSelected, deleting,
-}: {
-  monthCursor: Date;
-  setMonthCursor: (d: Date) => void;
-  sessionsByDateKey: Map<string, Session[]>;
-  currentClientId: string;
-  onDayClick: (dateKey: string) => void;
-  onChipClick: (sessionId: string) => void;
+function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, currentClientId,
+  onDayClick, onChipClick, onDropSession, disabled, deleteMode, selectedIds, onToggleDeleteMode, onDeleteSelected, deleting }: {
+  monthCursor: Date; setMonthCursor: (d: Date) => void; sessionsByDateKey: Map<string, Session[]>;
+  currentClientId: string; onDayClick: (dateKey: string) => void; onChipClick: (sessionId: string) => void;
   onDropSession: (sessionId: string, sourceClientId: string, targetDateKey: string) => void;
-  disabled: boolean;
-  deleteMode: boolean;
-  selectedIds: string[];
-  onToggleDeleteMode: () => void;
-  onDeleteSelected: () => void;
-  deleting: boolean;
+  disabled: boolean; deleteMode: boolean; selectedIds: string[];
+  onToggleDeleteMode: () => void; onDeleteSelected: () => void; deleting: boolean;
 }) {
   const [dragOver, setDragOver] = useState<string | null>(null);
   const days = useMemo(() => buildMonthGrid(monthCursor), [monthCursor]);
@@ -531,29 +506,21 @@ function MonthCalendar({
         <button onClick={() => setMonthCursor(addMonths(monthCursor, 1))} className="text-sm px-2 py-1 hover:bg-neutral-100 rounded">→</button>
       </div>
 
-      {/* Delete mode toolbar */}
       <div className="flex items-center justify-between mb-2 min-h-[24px]">
-        <button
-          onClick={onToggleDeleteMode}
-          className={`text-xs px-2 py-0.5 rounded border transition-colors ${deleteMode ? "bg-red-500 text-white border-red-500" : "text-neutral-400 border-neutral-200 hover:bg-neutral-100"}`}
-        >
+        <button onClick={onToggleDeleteMode}
+          className={`text-xs px-2 py-0.5 rounded border transition-colors ${deleteMode ? "bg-red-500 text-white border-red-500" : "text-neutral-400 border-neutral-200 hover:bg-neutral-100"}`}>
           {deleteMode ? "✕ Cancel" : "🗑 Select"}
         </button>
         {deleteMode && selectedIds.length > 0 && (
-          <button
-            onClick={onDeleteSelected}
-            disabled={deleting}
-            className="text-xs px-2 py-0.5 rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
-          >
+          <button onClick={onDeleteSelected} disabled={deleting}
+            className="text-xs px-2 py-0.5 rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-50">
             {deleting ? "Deleting…" : `Delete ${selectedIds.length}`}
           </button>
         )}
       </div>
 
       <div className="grid grid-cols-7 gap-1 text-[10px] text-neutral-400 mb-1">
-        {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-          <div key={i} className="text-center">{d}</div>
-        ))}
+        {["S","M","T","W","T","F","S"].map((d, i) => <div key={i} className="text-center">{d}</div>)}
       </div>
 
       <div className="grid grid-cols-7 gap-1">
@@ -561,28 +528,20 @@ function MonthCalendar({
           const daySessions = sessionsByDateKey.get(key) ?? [];
           const isOver = dragOver === key;
           return (
-            <div
-              key={key}
+            <div key={key}
               className={`aspect-square rounded border text-[11px] p-1 flex flex-col transition-colors ${inMonth ? "" : "opacity-30"} ${isOver ? "border-blue-400 bg-blue-50" : ""}`}
               onDragOver={(e) => { e.preventDefault(); if (!deleteMode) setDragOver(key); }}
               onDragLeave={() => setDragOver(null)}
-              onDrop={(e) => handleDrop(e, key)}
-            >
+              onDrop={(e) => handleDrop(e, key)}>
               <span className="text-neutral-500">{date.getDate()}</span>
               {daySessions.length > 0 ? (
-                <div
-                  draggable={!deleteMode}
+                <div draggable={!deleteMode}
                   onDragStart={(e) => {
                     if (deleteMode) return;
-                    e.dataTransfer.setData(
-                      "text/plain",
-                      JSON.stringify({ sessionId: daySessions[0].id, sourceClientId: currentClientId })
-                    );
+                    e.dataTransfer.setData("text/plain", JSON.stringify({ sessionId: daySessions[0].id, sourceClientId: currentClientId }));
                   }}
-                  className="mt-auto"
-                >
-                  <button
-                    onClick={() => onChipClick(daySessions[0].id)}
+                  className="mt-auto">
+                  <button onClick={() => onChipClick(daySessions[0].id)}
                     className={`w-full truncate rounded px-1 py-0.5 text-left text-[10px] transition-colors ${
                       deleteMode
                         ? selectedIds.includes(daySessions[0].id)
@@ -590,17 +549,13 @@ function MonthCalendar({
                           : "bg-red-100 text-red-700 border border-red-300"
                         : "bg-neutral-800 text-white cursor-grab active:cursor-grabbing"
                     }`}
-                    title={daySessions[0].dayLabel}
-                  >
+                    title={daySessions[0].dayLabel}>
                     {deleteMode && selectedIds.includes(daySessions[0].id) ? "✓ " : ""}{daySessions[0].dayLabel}
                   </button>
                 </div>
               ) : (
-                <button
-                  onClick={() => onDayClick(key)}
-                  disabled={disabled || deleteMode}
-                  className="mt-auto text-neutral-300 hover:text-neutral-600 disabled:opacity-50"
-                >
+                <button onClick={() => onDayClick(key)} disabled={disabled || deleteMode}
+                  className="mt-auto text-neutral-300 hover:text-neutral-600 disabled:opacity-50">
                   +
                 </button>
               )}
@@ -612,9 +567,7 @@ function MonthCalendar({
   );
 }
 
-function addMonths(d: Date, n: number) {
-  return new Date(d.getFullYear(), d.getMonth() + n, 1);
-}
+function addMonths(d: Date, n: number) { return new Date(d.getFullYear(), d.getMonth() + n, 1); }
 
 function buildMonthGrid(monthCursor: Date) {
   const year = monthCursor.getFullYear();
