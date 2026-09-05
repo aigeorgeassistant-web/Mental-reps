@@ -152,16 +152,12 @@ export function ProgramBuilder({
 
     startTransition(async () => {
       await addExerciseToSession(targetSessionId, exerciseId);
-      router.refresh();
       if (isTemplateSession && selectedTemplateSession) {
         await fetchTemplateSession(selectedTemplateSession.id);
       } else {
-        // Clear optimistic rows for this session — router.refresh() brings real data
-        setOptimisticRows((prev) => {
-          const next = { ...prev };
-          delete next[targetSessionId];
-          return next;
-        });
+        // router.refresh() brings real data — optimistic rows are cleared
+        // only after server data arrives (React reconciles by real ids)
+        router.refresh();
       }
     });
   }
