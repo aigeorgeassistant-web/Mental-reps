@@ -11,7 +11,7 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { name, muscleGroups, equipment, cues, youtubeUrl, gifUrl } = body;
+    const { name, muscleGroups, equipment, cues, youtubeUrl, gifUrl, lowerIsBetter } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -26,6 +26,7 @@ export async function PATCH(
         cues: cues?.trim() || null,
         youtubeUrl: youtubeUrl?.trim() || null,
         gifUrl: gifUrl || null,
+        lowerIsBetter: lowerIsBetter ?? false,
       },
     });
 
