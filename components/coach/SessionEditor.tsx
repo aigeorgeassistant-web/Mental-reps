@@ -194,6 +194,7 @@ export function SessionEditor({
   const locked = isTemplateSession === true && templateLocked;
 
   const blocks = buildBlocks(rows);
+  const hasOptimisticRows = rows.some((r) => (r as any)._optimistic === true);
 
   function blockKeyOf(b: Block): string {
     return b.kind === "single" ? b.row.id : b.rows[0].id;
@@ -268,7 +269,7 @@ export function SessionEditor({
     const hi = Math.max(selectAnchor, selectEnd);
     setIsSelecting(false);
 
-    if (hi > lo && !locked) {
+    if (hi > lo && !locked && !hasOptimisticRows) {
       // real drag across multiple rows — start the superset color flow
       const ids = rows.slice(lo, hi + 1).map((r) => r.id);
       const disabledColors: string[] = [];
@@ -513,16 +514,27 @@ export function SessionEditor({
         </p>
       ) : (
         <div className="flex flex-col gap-2 select-none" onMouseUp={finishSelect}>
+          {hasOptimisticRows && (
+            <div className="flex items-center gap-1.5 rounded border border-neutral-200 bg-neutral-50 px-2 py-1">
+              <svg className="animate-spin h-3 w-3 text-neutral-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+              </svg>
+              <span className="text-[10px] text-neutral-400">Saving...</span>
+            </div>
+          )}
           {blocks.map((block) => {
             if (block.kind === "single") {
               const { row, index } = block;
+              const isOptimistic = (row as any)._optimistic === true;
               return (
                 <RowLine
                   key={row.id}
                   row={row}
                   index={index}
                   selected={isRowInSelection(index)}
-                          locked={locked}
+                  locked={locked}
+                  optimistic={isOptimistic}
                   onMouseDown={(e) => startSelect(e, index)}
                   onMouseEnter={() => extendSelect(index)}
                   onDragOver={(e) => e.preventDefault()}
@@ -565,6 +577,7 @@ export function SessionEditor({
                           index={index}
                           selected={isRowInSelection(index)}
                           locked={locked}
+                          optimistic={(row as any)._optimistic === true}
                           onMouseDown={(e) => startSelect(e, index)}
                           onMouseEnter={() => extendSelect(index)}
                           onDragOver={(e) => e.preventDefault()}
@@ -999,6 +1012,7 @@ function RowLine({
   index: number;
   selected: boolean;
   locked?: boolean;
+  optimistic?: boolean;
   onMouseDown: (e: React.MouseEvent) => void;
   onMouseEnter: () => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -1017,9 +1031,9 @@ function RowLine({
       onDragOver={locked ? undefined : onDragOver}
       onDrop={locked ? undefined : onDrop}
       style={{ borderLeft: row.groupColor ? `4px solid ${row.groupColor}` : undefined }}
-      className={`relative flex items-center gap-2 rounded border px-2 py-2 text-sm bg-white ${
-        selected ? "bg-blue-50 border-blue-300" : ""
-      }`}
+      className={`relative flex items-center gap-2 rounded border px-2 py-2 text-sm bg-white transition-opacity ${
+        optimistic ? "opacity-40 pointer-events-none" : ""
+      } ${selected ? "bg-blue-50 border-blue-300" : ""}`}
     >
       {!locked && (
         <span
