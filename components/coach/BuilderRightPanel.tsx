@@ -94,6 +94,7 @@ function EditExerciseForm({ exercise, onDone }: { exercise: Exercise; onDone: ()
   const [gifFile, setGifFile] = useState<File | null>(null);
   const [gifUploading, setGifUploading] = useState(false);
   const [gifError, setGifError] = useState<string | null>(null);
+  const [lowerIsBetter, setLowerIsBetter] = useState(exercise.lowerIsBetter ?? false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -144,6 +145,7 @@ function EditExerciseForm({ exercise, onDone }: { exercise: Exercise; onDone: ()
           cues: cues.trim() || null,
           youtubeUrl: youtubeUrl.trim() || null,
           gifUrl: gifPublicUrl ?? exercise.gifUrl,
+          lowerIsBetter,
         }),
       });
       if (!res.ok) {
@@ -185,6 +187,24 @@ function EditExerciseForm({ exercise, onDone }: { exercise: Exercise; onDone: ()
         <label className="text-xs text-neutral-500 mb-1 block">YouTube URL</label>
         <input type="text" value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} placeholder="https://youtube.com/..." className="w-full rounded border px-2 py-1 text-sm" />
       </div>
+      {/* Lower is better toggle */}
+      <button
+        onClick={() => setLowerIsBetter((v) => !v)}
+        className={`flex items-center justify-between rounded border px-3 py-2 text-sm transition-colors ${
+          lowerIsBetter ? "border-blue-400 bg-blue-50 text-blue-800" : "border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+        }`}
+      >
+        <div className="flex flex-col items-start">
+          <span className="font-medium text-xs">Lower is better</span>
+          <span className="text-[10px] text-neutral-400 mt-0.5">
+            e.g. rowing erg for time, assisted pull-ups
+          </span>
+        </div>
+        <div className={`w-8 h-4 rounded-full transition-colors flex items-center px-0.5 ${lowerIsBetter ? "bg-blue-500" : "bg-neutral-300"}`}>
+          <div className={`w-3 h-3 rounded-full bg-white shadow transition-transform ${lowerIsBetter ? "translate-x-4" : "translate-x-0"}`} />
+        </div>
+      </button>
+
       <div>
         <label className="text-xs text-neutral-500 mb-1 block">GIF {exercise.gifUrl ? "(replace)" : "(upload)"}</label>
         <input ref={fileInputRef} type="file" accept="image/gif,image/*" onChange={handleGifSelect} className="hidden" />
