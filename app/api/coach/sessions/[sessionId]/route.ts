@@ -3,8 +3,7 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 
 // GET /api/coach/sessions/[sessionId]
-// Returns full session data including sessionExercises + exercise.
-// Used by ProgramBuilder to hydrate template sessions (not pre-loaded by page).
+// Returns full session data including sessionExercises + exercise + loggedSets + checkIn.
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ sessionId: string }> }
@@ -23,8 +22,17 @@ export async function GET(
     },
     include: {
       sessionExercises: {
-        include: { exercise: true },
+        include: {
+          exercise: true,
+          loggedSets: {
+            select: { setIndex: true, weight: true, reps: true, notes: true },
+            orderBy: { setIndex: "asc" },
+          },
+        },
         orderBy: { order: "asc" },
+      },
+      checkIn: {
+        select: { sleep: true, mood: true, hydration: true, stress: true },
       },
     },
   });
