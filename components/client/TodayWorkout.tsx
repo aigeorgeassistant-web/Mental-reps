@@ -421,8 +421,8 @@ function SetRow({ s, i, row, sessionId, unit, onPicker, onChange }: {
 
 // ─── Exercise card (straight sets) ───────────────────────────────────────────
 
-function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true }: {
-  row: Row; sessionId: string; defaultUnit: Units; defaultOpen?: boolean;
+function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDone }: {
+  row: Row; sessionId: string; defaultUnit: Units; defaultOpen?: boolean; onAllDone?: () => void;
 }) {
   const numSets = row.sets || 1;
   const defaultReps = row.reps ?? 10;
@@ -437,6 +437,10 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true }: {
 
   const doneSets = sets.filter((s) => s.done).length;
   const allDone = doneSets === numSets;
+  const prevAllDone = useRef(false);
+  useEffect(() => {
+    if (allDone && !prevAllDone.current) { prevAllDone.current = true; onAllDone?.(); }
+  }, [allDone]);
   const target = formatTarget(row);
   const ytUrl = row.exercise.youtubeUrl ? ytLink(row.exercise.youtubeUrl) : null;
 
@@ -614,6 +618,16 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
   const [emomTimer, setEmomTimer] = useState<EmomConfig | null>(null);
   const [calOpen, setCalOpen] = useState(false);
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const [checkinOpen, setCheckinOpen] = useState(false);
+  const [checkinDone, setCheckinDone] = useState(false);
+  const checkinAutoFired = useRef(false);
+
+  function onAllExercisesDone() {
+    if (!checkinAutoFired.current && !checkinDone) {
+      checkinAutoFired.current = true;
+      setCheckinOpen(true);
+    }
+  }
 
   function toggleGroup(key: string) { setActiveGroup((v) => v === key ? null : key); }
 
@@ -643,12 +657,26 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
       {timer && <IntervalTimer config={timer} onClose={() => setTimer(null)} />}
       {emomTimer && <EmomTimer config={emomTimer} onClose={() => setEmomTimer(null)} />}
       {calOpen && <CalendarPopup sessionId={session.id} onClose={() => setCalOpen(false)} />}
+      {checkinOpen && (
+        <CheckinOverlay
+          sessionId={session.id}
+          onClose={(saved) => { setCheckinOpen(false); if (saved) setCheckinDone(true); }}
+        />
+      )}
 
       <header style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--line)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 10 }}>
         <div style={{ fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--steel)", fontWeight: 600 }}>{date}</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 2 }}>
           <h1 style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.01em", color: "var(--text)", margin: 0 }}>{session.dayLabel}</h1>
           <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => setCheckinOpen(true)}
+              title="Session check-in — log how you feel to track performance trends"
+              style={{ height: 38, padding: "0 10px", borderRadius: 9, border: `1px solid ${checkinDone ? "var(--good)" : "var(--line)"}`, background: checkinDone ? "rgba(84,193,122,.12)" : "var(--panel)", color: checkinDone ? "var(--good)" : "var(--dim)", fontSize: 11, fontWeight: 700, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 5, cursor: "pointer", letterSpacing: ".04em" }}
+            >
+              <span style={{ fontSize: 13, letterSpacing: 0 }}>▁▃▅</span>
+              {checkinDone ? "Logged" : "Check-in"}
+            </button>
             <button onClick={() => setCalOpen(true)} style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }} title="Calendar">📅</button>
             <a href="/client/dashboard" style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }} title="Overview">📊</a>
           </div>
@@ -658,7 +686,7 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
       <main style={{ padding: 12, paddingBottom: 100 }}>
         {blocks.map((block, bi) => {
           if (block.kind === "single") {
-            return <ExerciseCard key={block.row.id} row={block.row} sessionId={session.id} defaultUnit={defaultUnit} />;
+            return <ExerciseCard key={block.row.id} row={block.row} sessionId={session.id} defaultUnit={defaultUnit} onAllDone={onAllExercisesDone} />;
           }
 
           if (block.kind === "superset") {
@@ -708,5 +736,96 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
         })}
       </main>
     </>
+  );
+}
+
+// ─── Check-in overlay ─────────────────────────────────────────────────────────
+
+const CHECKIN_METRICS = [
+  { key: "sleep",      label: "Sleep",      emoji: "😴", desc: "How well did you sleep last night?" },
+  { key: "mood",       label: "Mood",       emoji: "🧠", desc: "General mental state going into this session." },
+  { key: "hydration",  label: "Hydration",  emoji: "💧", desc: "How hydrated did you feel?" },
+  { key: "stress",     label: "Stress",     emoji: "⚡", desc: "Stress level (1 = very stressed, 5 = completely calm)." },
+] as const;
+
+type MetricKey = typeof CHECKIN_METRICS[number]["key"];
+
+function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (saved: boolean) => void }) {
+  const [values, setValues] = useState<Partial<Record<MetricKey, number>>>({});
+  const [whyOpen, setWhyOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function handleConfirm() {
+    const hasAny = Object.keys(values).length > 0;
+    if (hasAny) {
+      setSaving(true);
+      try {
+        await fetch("/api/client/checkin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, ...values }),
+        });
+      } catch {}
+      setSaving(false);
+    }
+    onClose(hasAny);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(10,11,14,.92)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", padding: "0 0 24px" }}>
+      <div style={{ width: "100%", maxWidth: 420, background: "var(--panel)", borderRadius: "20px 20px 0 0", border: "1px solid var(--line)", padding: "20px 20px 8px", display: "flex", flexDirection: "column", gap: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text)" }}>Session Check-in</div>
+            <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 2 }}>Rate 1–5. Skip anything you don't want to log.</div>
+          </div>
+          <button onClick={() => onClose(false)} style={{ background: "none", border: "none", color: "var(--dim)", fontSize: 20, cursor: "pointer", padding: 4 }}>✕</button>
+        </div>
+
+        {CHECKIN_METRICS.map(({ key, label, emoji }) => (
+          <div key={key} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--dim)", marginBottom: 6 }}>{emoji} {label}</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[1,2,3,4,5].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setValues((v) => ({ ...v, [key]: v[key] === n ? undefined : n }))}
+                  style={{
+                    flex: 1, height: 44, borderRadius: 10, border: `2px solid ${values[key] === n ? "var(--accent)" : "var(--line)"}`,
+                    background: values[key] === n ? "rgba(255,75,62,.15)" : "var(--bg)",
+                    color: values[key] === n ? "var(--accent)" : "var(--dim)",
+                    fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", transition: "all .15s"
+                  }}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <button
+          onClick={() => setWhyOpen((v) => !v)}
+          style={{ background: "none", border: "none", color: "var(--steel)", fontSize: 11, cursor: "pointer", textAlign: "left", padding: "6px 0 2px", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}
+        >
+          <span style={{ transition: "transform .2s", display: "inline-block", transform: whyOpen ? "rotate(90deg)" : "none" }}>▶</span>
+          Why does this matter?
+        </button>
+        {whyOpen && (
+          <div style={{ fontSize: 11, color: "var(--dim)", lineHeight: 1.6, background: "rgba(255,255,255,.03)", borderRadius: 10, padding: "10px 12px", marginTop: 6 }}>
+            Tracking how you feel alongside your workouts lets you spot patterns — like consistently weaker sessions after poor sleep, or higher stress days affecting your lifts. Over time this data powers real performance diagnostics: not just what you lifted, but <em>why</em> you performed the way you did.
+          </div>
+        )}
+
+        <button
+          onClick={handleConfirm}
+          disabled={saving}
+          style={{ marginTop: 16, width: "100%", height: 48, borderRadius: 12, border: "none", background: saving ? "var(--line)" : "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 800, cursor: saving ? "default" : "pointer", fontFamily: "inherit", letterSpacing: ".02em" }}
+        >
+          {saving ? "Saving..." : "Confirm"}
+        </button>
+        <div style={{ height: 8 }} />
+      </div>
+    </div>
   );
 }
