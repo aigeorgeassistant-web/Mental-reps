@@ -38,8 +38,10 @@ import {
 } from "@/lib/timerNotation";
 import { useRouter } from "next/navigation";
 
-type Row = SessionExercise & { exercise: Exercise };
-type SessionWithExercises = Session & { sessionExercises: Row[] };
+type LoggedSetData = { setIndex: number; weight: number | null; reps: number | null; notes: string | null };
+type CheckInData = { sleep: number | null; mood: number | null; hydration: number | null; stress: number | null };
+type Row = SessionExercise & { exercise: Exercise; loggedSets?: LoggedSetData[] };
+type SessionWithExercises = Session & { sessionExercises: Row[]; checkIn?: CheckInData | null };
 
 const PALETTE = ["#FCA5A5", "#FDBA74", "#FDE68A", "#86EFAC", "#93C5FD", "#C4B5FD"];
 
@@ -499,8 +501,23 @@ export function SessionEditor({
           </button>
         </div>
       ) : (
-        <div className="mb-2 flex items-center gap-1.5 rounded border border-blue-100 bg-blue-50 px-2 py-1">
+        <div className="mb-2 flex items-center gap-1.5 rounded border border-blue-100 bg-blue-50 px-2 py-1 flex-wrap">
           <span className="text-[10px] text-blue-600 font-medium">Client session</span>
+          {session.checkIn && (
+            <>
+              <span className="text-neutral-300 text-[10px]">|</span>
+              {(["sleep","mood","hydration","stress"] as const).map((key) => {
+                const icons: Record<string,string> = { sleep: "😴", mood: "🧠", hydration: "💧", stress: "⚡" };
+                const val = (session.checkIn as any)[key];
+                if (val == null) return null;
+                return (
+                  <span key={key} className="flex items-center gap-0.5 text-[10px] font-semibold text-neutral-500">
+                    {icons[key]} {val}
+                  </span>
+                );
+              })}
+            </>
+          )}
         </div>
       )}
       <p className="text-xs text-neutral-400 mb-3">
@@ -540,7 +557,6 @@ export function SessionEditor({
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => handleDrop(index)}
                   onDragStart={() => { setDragIndex(index); setDragBlockKey(null); }}
-                  rightLabel={row.target ?? undefined}
                   onEditTimer={() => openTimerEditor(row)}
                   onEditDetails={() => openDetailsEdit(row)}
                   onDelete={() => deleteOne(row.id)}
@@ -583,7 +599,6 @@ export function SessionEditor({
                           onDragOver={(e) => e.preventDefault()}
                           onDrop={() => handleDrop(index)}
                           onDragStart={() => { setDragIndex(index); setDragBlockKey(null); }}
-                          rightLabel={row.target ?? undefined}
                           onEditTimer={() => openTimerEditor(row)}
                           onEditDetails={() => openDetailsEdit(row)}
                           onDelete={() => deleteOne(row.id)}
@@ -992,6 +1007,17 @@ function RowMenuButton({ onDelete }: { onDelete: () => void }) {
   );
 }
 
+function NotePopup({ note, onClose }: { note: string; onClose: () => void }) {
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute z-50 right-0 top-7 w-56 rounded-lg border bg-white shadow-lg p-3 text-xs text-neutral-700 leading-relaxed">
+        {note}
+      </div>
+    </>
+  );
+}
+
 function RowLine({
   row,
   index,
@@ -1003,7 +1029,6 @@ function RowLine({
   onDragOver,
   onDrop,
   onDragStart,
-  rightLabel,
   onEditTimer,
   onEditDetails,
   onDelete,
@@ -1019,12 +1044,15 @@ function RowLine({
   onDragOver: (e: React.DragEvent) => void;
   onDrop: () => void;
   onDragStart: () => void;
-  rightLabel?: string;
   onEditTimer: () => void;
   onEditDetails: () => void;
   onDelete: () => void;
   detailsLabel: string | null;
 }) {
+  const [noteOpen, setNoteOpen] = useState(false);
+  const hasNote = !!row.coachNote;
+  const logged = row.loggedSets ?? [];
+
   return (
     <div
       onMouseDown={onMouseDown}
@@ -1047,32 +1075,64 @@ function RowLine({
           ⠿
         </span>
       )}
-      <span
-        data-role="exercise-name"
-        className="flex-1 cursor-pointer hover:underline"
-      >
+
+      {/* Exercise name */}
+      <span data-role="exercise-name" className="min-w-0 shrink-0 cursor-pointer hover:underline" style={{ maxWidth: "30%" }}>
         {row.exercise.name}
       </span>
-      {detailsLabel && <span className="text-[10px] text-neutral-400">{detailsLabel}</span>}
-      {rightLabel && <span className="text-[10px] text-neutral-400">{rightLabel}</span>}
-      {!locked && (
+
+      {/* Logged sets — middle, only if data exists */}
+      {logged.length > 0 && (
+        <div className="flex flex-1 flex-wrap gap-1 px-1">
+          {logged
+            .filter((s) => s.weight !== null || s.reps !== null)
+            .sort((a, b) => a.setIndex - b.setIndex)
+            .map((s, i) => (
+              <span
+                key={i}
+                className="rounded px-1.5 py-0.5 text-[10px] font-mono font-semibold"
+                style={{ background: "rgba(84,193,122,.12)", color: "#1a6b3c", border: "1px solid rgba(84,193,122,.3)" }}
+              >
+                {s.weight != null ? `${s.weight}kg` : ""}{s.weight != null && s.reps != null ? "×" : ""}{s.reps != null ? s.reps : ""}
+              </span>
+            ))}
+        </div>
+      )}
+      {logged.length === 0 && <div className="flex-1" />}
+
+      {/* Details pill with note dot */}
+      <div className="relative shrink-0" onMouseDown={(e) => e.stopPropagation()}>
         <button
-          onMouseDown={(e) => e.stopPropagation()}
           onClick={onEditDetails}
-          className="text-[11px] text-neutral-400 hover:text-neutral-700 underline"
+          className="flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-semibold text-neutral-600 hover:border-neutral-400 hover:text-neutral-800 transition-colors"
+          style={{ background: detailsLabel ? "rgba(46,143,255,.07)" : undefined, borderColor: detailsLabel ? "rgba(46,143,255,.3)" : undefined }}
         >
-          Details
+          {detailsLabel ?? "Set details"}
         </button>
-      )}
-      {!locked && (
-        <button
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={onEditTimer}
-          className="text-[11px] text-neutral-400 hover:text-neutral-700 underline"
-        >
-          Timer
-        </button>
-      )}
+        {hasNote && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setNoteOpen((v) => !v); }}
+            className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 rounded-full border border-white text-[8px] flex items-center justify-center font-bold"
+            style={{ background: "#f59e0b", color: "#fff" }}
+            title="Coach note"
+          >
+            !
+          </button>
+        )}
+        {noteOpen && <NotePopup note={row.coachNote ?? ""} onClose={() => setNoteOpen(false)} />}
+      </div>
+
+      {/* Timer button */}
+      <button
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={onEditTimer}
+        className="shrink-0 flex items-center justify-center rounded border px-2 py-1 text-neutral-400 hover:text-neutral-700 hover:border-neutral-400 transition-colors"
+        style={{ fontSize: 13 }}
+        title="Timer"
+      >
+        🕐
+      </button>
+
       {!locked && <RowMenuButton onDelete={onDelete} />}
     </div>
   );
