@@ -4,7 +4,7 @@
 // Handles both client sessions (pre-loaded) and template sessions (fetched on demand).
 // Optimistic exercise add: appends a fake row immediately on click, server catches up.
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, Exercise, Program, Session, SessionExercise } from "@prisma/client";
 import { BuilderLeftPanel } from "./BuilderLeftPanel";
@@ -45,8 +45,12 @@ export function ProgramBuilder({
   const [monthCursor, setMonthCursor] = useState<Date>(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
-  // Optimistic rows keyed by sessionId
-  const [optimisticRows, setOptimisticRows] = useState<Record<string, OptimisticRow[]>>({});
+
+  // Optimistic rows keyed by sessionId → { rows, expectedCount }
+  // expectedCount = how many rows we expect after the server saves
+  const [optimisticState, setOptimisticState] = useState<
+    Record<string, { rows: OptimisticRow[]; expectedCount: number }>
+  >({});
 
   const [, startTransition] = useTransition();
   const router = useRouter();
@@ -55,13 +59,27 @@ export function ProgramBuilder({
   const selectedClientSession = program?.sessions.find((s) => s.id === selectedSessionId) ?? null;
   const sessionForEditor: FullSession | null = selectedClientSession ?? selectedTemplateSession;
 
+  // When server data catches up (real row count >= expectedCount), clear optimistic rows
+  useEffect(() => {
+    if (!selectedClientSession) return;
+    const state = optimisticState[selectedClientSession.id];
+    if (!state) return;
+    if (selectedClientSession.sessionExercises.length >= state.expectedCount) {
+      setOptimisticState((prev) => {
+        const next = { ...prev };
+        delete next[selectedClientSession.id];
+        return next;
+      });
+    }
+  }, [selectedClientSession?.sessionExercises.length, selectedClientSession?.id]);
+
   // Merge optimistic rows into the session before passing to SessionEditor
   const sessionWithOptimistic: FullSession | null = sessionForEditor
     ? {
         ...sessionForEditor,
         sessionExercises: [
           ...sessionForEditor.sessionExercises,
-          ...(optimisticRows[sessionForEditor.id] ?? []),
+          ...(optimisticState[sessionForEditor.id]?.rows ?? []),
         ],
       }
     : null;
@@ -76,8 +94,7 @@ export function ProgramBuilder({
       if (res.ok) {
         const data: FullSession = await res.json();
         setSelectedTemplateSession(data);
-        // Clear optimistic rows for this session — server data is now fresh
-        setOptimisticRows((prev) => {
+        setOptimisticState((prev) => {
           const next = { ...prev };
           delete next[sessionId];
           return next;
@@ -114,13 +131,13 @@ export function ProgramBuilder({
     const exercise = exercises.find((e) => e.id === exerciseId);
     if (!exercise) return;
 
-    // Current row count = server rows + optimistic rows already pending
     const currentSession = sessionForEditor;
     const serverCount = currentSession?.sessionExercises.length ?? 0;
-    const pendingCount = (optimisticRows[targetSessionId] ?? []).length;
+    const currentOptimistic = optimisticState[targetSessionId];
+    const pendingCount = currentOptimistic?.rows.length ?? 0;
     const order = serverCount + pendingCount;
+    const newExpectedCount = serverCount + pendingCount + 1;
 
-    // Build optimistic row — fake id so React has a key
     const optimisticRow: OptimisticRow = {
       id: `__optimistic_${Date.now()}_${Math.random()}`,
       sessionId: targetSessionId,
@@ -144,10 +161,12 @@ export function ProgramBuilder({
       _optimistic: true,
     };
 
-    // Append optimistic row immediately
-    setOptimisticRows((prev) => ({
+    setOptimisticState((prev) => ({
       ...prev,
-      [targetSessionId]: [...(prev[targetSessionId] ?? []), optimisticRow],
+      [targetSessionId]: {
+        rows: [...(prev[targetSessionId]?.rows ?? []), optimisticRow],
+        expectedCount: newExpectedCount,
+      },
     }));
 
     startTransition(async () => {
@@ -155,8 +174,6 @@ export function ProgramBuilder({
       if (isTemplateSession && selectedTemplateSession) {
         await fetchTemplateSession(selectedTemplateSession.id);
       } else {
-        // router.refresh() brings real data — optimistic rows are cleared
-        // only after server data arrives (React reconciles by real ids)
         router.refresh();
       }
     });
@@ -215,7 +232,6 @@ export function ProgramBuilder({
         onSelectTemplateSession={handleSelectTemplateSession}
       />
 
-      {/* Bottom-left account controls */}
       <div className="fixed bottom-4 left-4 flex flex-col gap-2 z-50">
         <a
           href="/coach/clients"
