@@ -38,14 +38,14 @@ enum ExerciseSource {
 // One per human coach (George, his wife). Linked to a Better Auth user
 // (id lives in the neon_auth schema, managed by Better Auth itself).
 model Coach {
-  id        String   @id @default(cuid())
-  authUserId String  @unique
-  name      String
-  email     String   @unique
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  authUserId String   @unique
+  name       String
+  email      String   @unique
+  createdAt  DateTime @default(now())
 
   clients  Client[]
-  programs Program[] // templates a coach has authored
+  programs Program[]
 }
 
 // A coach's client. Notes are split per SPEC.md §5 — Health/mobility notes
@@ -54,31 +54,30 @@ model Client {
   id            String   @id @default(cuid())
   coachId       String
   coach         Coach    @relation(fields: [coachId], references: [id])
-  authUserId    String?  @unique // null until the client accepts their invite
+  authUserId    String?  @unique
   name          String
   email         String
   phone         String?
-  healthNotes   String? // read by the AI warning system — nothing else is
-  generalNotes  String? // scheduling/preferences — coach-visible only
-  equipment     String[] // subset of the fixed taxonomy, see EQUIPMENT_TAXONOMY below
+  healthNotes   String?
+  generalNotes  String?
+  equipment     String[]
   units         Units    @default(KG)
   createdAt     DateTime @default(now())
 
   programs   Program[]
   loggedSets LoggedSet[]
+  invites    ClientInvite[]
 }
 
-// The shared exercise catalog. `name` must be unique and is matched
-// EXACTLY (case-normalized) against Google Sheet rows during sync —
-// see SPEC.md §4 for why fuzzy matching was dropped.
+// The shared exercise catalog.
 model Exercise {
   id           String         @id @default(cuid())
   name         String         @unique
-  gifUrl       String? // Cloudflare R2 URL, filled in once the coach adds a GIF
-  youtubeUrl   String? // fallback demo, embedded inline per SPEC.md §8
+  gifUrl       String?
+  youtubeUrl   String?
   cues         String?
-  muscleGroups String[] // e.g. ["Back", "Biceps"] — see Sheet taxonomy
-  equipment    String[] // subset of EQUIPMENT_TAXONOMY
+  muscleGroups String[]
+  equipment    String[]
   source       ExerciseSource @default(SHEET)
   createdAt    DateTime       @default(now())
 
@@ -86,8 +85,7 @@ model Exercise {
   loggedSets       LoggedSet[]
 }
 
-// A reusable template (isTemplate=true, clientId=null) OR
-// a live, assigned client program (isTemplate=false, clientId set).
+// A reusable template (isTemplate=true) OR a live client program.
 model Program {
   id         String   @id @default(cuid())
   coachId    String
@@ -101,24 +99,21 @@ model Program {
   sessions Session[]
 }
 
-// One "day" within a Program. Template sessions have no real date
-// (weekNumber + dayLabel only); live sessions have a real `date`.
+// One "day" within a Program.
 model Session {
   id         String    @id @default(cuid())
   programId  String
   program    Program   @relation(fields: [programId], references: [id])
-  date       DateTime? // null for templates
-  weekNumber Int? // used for template Week view
-  dayLabel   String // e.g. "Back / Biceps"
+  date       DateTime?
+  weekNumber Int?
+  dayLabel   String
   order      Int       @default(0)
 
   sessionExercises SessionExercise[]
+  loggedSets       LoggedSet[]
 }
 
 // One exercise placed within a Session.
-// `target` is the timer notation string — see SPEC.md §7. It is the SAME
-// format the legacy client app already parses (e.g. "40/20x3", "EMOM60x20"),
-// so the runtime timer component can be ported with no format changes.
 model SessionExercise {
   id         String   @id @default(cuid())
   sessionId  String
@@ -127,52 +122,66 @@ model SessionExercise {
   exercise   Exercise @relation(fields: [exerciseId], references: [id])
   order      Int      @default(0)
 
-  sets     Int?
-  reps     Int?
-  setType  SetType  @default(FIXED_REPS)
-  loadType LoadType @default(FIXED)
-  target   String? // timer notation, null = straight sets, no timer
+  sets      Int?
+  reps      Int?
+  setType   SetType  @default(FIXED_REPS)
+  loadType  LoadType @default(FIXED)
+  loadValue Float?
+  loadUnit  Units?
+  coachNote String?
+  target    String?
 
-  groupId    String? // exercises sharing a groupId are one superset/circuit
-  groupColor String? // hex, shared across the group for the UI color bar
+  groupId    String?
+  groupColor String?
 
-  // Randomizer slot support (SPEC.md §10) — when set, this row is a "slot"
-  // and the client's client-side spin picks one of these exercise IDs at
-  // runtime instead of always doing `exerciseId` directly.
-  isRandomizerSlot     Boolean  @default(false)
-  slotPoolExerciseIds  String[] // Exercise ids, 4-6 typical
+  isRandomizerSlot    Boolean  @default(false)
+  slotPoolExerciseIds String[]
 
-  // Optional logging fields (SPEC.md §4 schema decisions) — hidden in the
-  // UI unless the coach turns them on for a given exercise/client.
   rpeEnabled  Boolean @default(false)
   restSeconds Int?
+
+  loggedSets LoggedSet[]
 }
 
-// Actual client-entered history. One row per logged set.
-// PR detection: on insert, compare against prior LoggedSets for the same
-// clientId+exerciseId and set `isPr` accordingly (app-layer logic, not a
-// DB trigger, so the "never overwrite, only add" exercise-versioning rule
-// in SPEC.md §4 is respected).
+// Actual client-entered history. One row per set per exercise per session.
+// sessionExerciseId + setIndex is unique — upsert overwrites on re-log.
+// notes field stores client's per-set note (coach-visible, AI-readable).
 model LoggedSet {
-  id         String   @id @default(cuid())
-  clientId   String
-  client     Client   @relation(fields: [clientId], references: [id])
-  exerciseId String
-  exercise   Exercise @relation(fields: [exerciseId], references: [id])
-  date       DateTime @default(now())
-  weight     Float?
-  reps       Int?
-  distance   Float? // cardio logging, SPEC.md §4
-  duration   Int? // seconds, cardio logging
-  notes      String?
-  rpe        Float?
-  isPr       Boolean  @default(false)
+  id                String   @id @default(cuid())
+  clientId          String
+  client            Client   @relation(fields: [clientId], references: [id])
+  exerciseId        String
+  exercise          Exercise @relation(fields: [exerciseId], references: [id])
+  sessionId         String?
+  session           Session? @relation(fields: [sessionId], references: [id])
+  sessionExerciseId String?
+  sessionExercise   SessionExercise? @relation(fields: [sessionExerciseId], references: [id])
+  setIndex          Int      @default(0) // 0-based, which set number in the exercise
+  date              DateTime @default(now())
+  weight            Float?
+  reps              Int?
+  distance          Float?
+  duration          Int?
+  notes             String?  // client's note for this set
+  rpe               Float?
+  isPr              Boolean  @default(false)
+
+  // Unique per set slot — enables upsert (overwrite on re-log)
+  @@unique([sessionExerciseId, setIndex])
 }
 
-// Not a DB table — just documenting the fixed taxonomy referenced above,
-// so the app-layer validation and the Sheet stay in sync. See SPEC.md §4.
-//
+// Invite tokens sent to clients so they can link their Google account.
+model ClientInvite {
+  id        String    @id @default(cuid())
+  token     String    @unique @default(cuid())
+  clientId  String
+  client    Client    @relation(fields: [clientId], references: [id])
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+}
+
 // EQUIPMENT_TAXONOMY = [
 //   "Barbell", "Dumbbell", "Machine", "Cable",
-//   "Bodyweight", "Bands", "Kettlebell", "Bench"
+//   "Bands", "Kettlebell", "Bench", "Other",
 // ]

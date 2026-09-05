@@ -1,40 +1,50 @@
+// app/client/today/page.tsx
+// Finds today's session and redirects to /client/session/[id].
+// force-dynamic: same reasoning as session/[sessionId]/page.tsx.
+
+export const dynamic = "force-dynamic";
+
 import { getCurrentRole } from "@/lib/role";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 
-// TODO: port the legacy app's session player (timer runtime, GIF/YouTube
-// demo, weight/reps scroll-picker logging) — logic to reuse lives in
-// lib/timerNotation.ts. This page currently just proves the data path
-// (client's own program only, enforced by clientId scoping below).
 export default async function TodayPage() {
-  const { role, client } = await getCurrentRole();
+  const { role, client } = await getCurrentRole() as any;
   if (role !== "client" || !client) redirect("/");
 
-  const today = new Date();
-  const session = await db.session.findFirst({
+  const now = new Date();
+  const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+  const windowEnd   = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+
+  const sessions = await db.session.findMany({
     where: {
       program: { clientId: client.id, isTemplate: false },
-      date: {
-        gte: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
-        lt: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1),
-      },
+      date: { gte: windowStart, lte: windowEnd },
     },
-    include: { sessionExercises: { include: { exercise: true }, orderBy: { order: "asc" } } },
+    select: { id: true, date: true },
   });
 
+  let best: { id: string; date: Date } | null = null;
+  for (const s of sessions) {
+    if (!s.date) continue;
+    if (!best || Math.abs(s.date.getTime() - now.getTime()) < Math.abs(best.date.getTime() - now.getTime())) {
+      best = s as { id: string; date: Date };
+    }
+  }
+
+  if (best) redirect(`/client/session/${best.id}`);
+
   return (
-    <main className="p-6">
-      <h1 className="mb-4 text-lg font-medium">Today</h1>
-      {!session && <p className="text-sm text-neutral-500">No session scheduled today.</p>}
-      {session && (
-        <ul className="flex flex-col gap-2">
-          {session.sessionExercises.map((se) => (
-            <li key={se.id} className="rounded-md border p-3 text-sm">
-              {se.exercise.name} — {se.sets} x {se.reps}
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+    <>
+      <style>{`
+        :root{--bg:#14161a;--panel:#1c1f24;--line:#2a2e35;--text:#edeae4;--dim:#8a8f98;--steel:#5c7a8a;}
+        body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+      `}</style>
+      <div style={{ padding: 24, textAlign: "center", paddingTop: 80 }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🗓</div>
+        <p style={{ color: "var(--dim)", fontSize: 15 }}>No session scheduled for today.</p>
+        <a href="/client/dashboard" style={{ display: "inline-block", marginTop: 20, color: "var(--steel)", fontSize: 13 }}>View your program →</a>
+      </div>
+    </>
   );
 }

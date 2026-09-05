@@ -2,7 +2,14 @@
 // extension speced in SPEC.md §7. This is the ONLY place that should ever
 // parse/build a `target` string — keep the coach builder and the client
 // session player both importing from here so the notation never drifts.
-
+//
+// CHANGE (2026-09-01): buildIntervalTarget's `rounds` param is now
+// optional. This is needed for Circuit groups — only the first exercise
+// in a circuit carries the round count (e.g. "40/20x3"), every other
+// exercise in that circuit just carries its own work/rest ("40/20") with
+// no round count. Parsing was already fine with this (the regex's round
+// group was already optional) — only the builder needed to catch up.
+// Existing callers that always pass rounds are unaffected.
 export type ParsedTarget =
   | { kind: "straight" }
   | { kind: "interval"; workSec: number; restSec: number; rounds: number | null }
@@ -10,7 +17,6 @@ export type ParsedTarget =
 
 export function parseIntervalTarget(target: string | null | undefined): ParsedTarget {
   if (!target) return { kind: "straight" };
-
   const emomMatch = target.match(/^EMOM(\d+)(?:x(\d+))?$/i);
   if (emomMatch) {
     return {
@@ -19,7 +25,6 @@ export function parseIntervalTarget(target: string | null | undefined): ParsedTa
       reps: emomMatch[2] ? parseInt(emomMatch[2], 10) : null,
     };
   }
-
   const intervalMatch = target.match(/^(\d+)\/(\d+)(?:x(\d+))?$/);
   if (intervalMatch) {
     return {
@@ -29,12 +34,11 @@ export function parseIntervalTarget(target: string | null | undefined): ParsedTa
       rounds: intervalMatch[3] ? parseInt(intervalMatch[3], 10) : null,
     };
   }
-
   return { kind: "straight" };
 }
 
-export function buildIntervalTarget(workSec: number, restSec: number, rounds: number): string {
-  return `${workSec}/${restSec}x${rounds}`;
+export function buildIntervalTarget(workSec: number, restSec: number, rounds?: number): string {
+  return rounds ? `${workSec}/${restSec}x${rounds}` : `${workSec}/${restSec}`;
 }
 
 export function buildEmomTarget(roundSec: number, reps?: number): string {
