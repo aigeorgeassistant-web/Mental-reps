@@ -1075,7 +1075,7 @@ function NumField({
   value: number | "";
   onChange: (v: any) => void;
   allowEmpty?: boolean;
-  inputRef?: React.RefObject<HTMLInputElement>;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }) {
   return (
