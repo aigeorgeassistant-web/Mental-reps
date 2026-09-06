@@ -378,12 +378,12 @@ function SetRow({ s, i, row, sessionId, unit, onPicker, onChange }: {
     <div style={{ marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
         <span style={{ fontSize: 12, color: "var(--dim)", fontFamily: "monospace", width: 18, flexShrink: 0 }}>{i + 1}</span>
-        <button onClick={() => onPicker("weight")} style={{ flex: 1, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 20, fontWeight: 800, padding: "10px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace" }}>
+        <button onClick={() => onPicker("weight")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 20, fontWeight: 800, padding: "10px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
           {s.weight % 1 === 0 ? s.weight : s.weight.toFixed(1)}
         </button>
         <span style={{ fontSize: 11, color: "var(--dim)", flexShrink: 0 }}>{unit.toLowerCase()}</span>
         <span style={{ fontSize: 14, color: "var(--dim)", flexShrink: 0 }}>×</span>
-        <button onClick={() => onPicker("reps")} style={{ width: 56, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 20, fontWeight: 800, padding: "10px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace" }}>
+        <button onClick={() => onPicker("reps")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 20, fontWeight: 800, padding: "10px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
           {s.reps}
         </button>
         {/* Square checkmark — grey ✓ idle, green ✓ done */}
@@ -434,6 +434,23 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   const [unit, setUnit] = useState<Units>(row.loadUnit ?? defaultUnit);
   const [picker, setPicker] = useState<{ setIdx: number; field: "weight" | "reps" } | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
+  const [copyPrompt, setCopyPrompt] = useState<{ field: "weight" | "reps"; value: number; fromIdx: number } | null>(null);
+
+  // Pre-populate sets from previously logged data for this session
+  useEffect(() => {
+    fetch(`/api/client/exercises/${row.exerciseId}/history`)
+      .then((r) => r.json())
+      .then((history: { sessionId: string | null; setIndex: number; weight: number | null; reps: number | null; notes: string | null }[]) => {
+        const sessionSets = history.filter((h) => h.sessionId === sessionId);
+        if (sessionSets.length === 0) return;
+        setSets((prev) => prev.map((ss, i) => {
+          const logged = sessionSets.find((h) => h.setIndex === i);
+          if (!logged) return ss;
+          return { ...ss, weight: logged.weight ?? ss.weight, reps: logged.reps ?? ss.reps, done: true, note: logged.notes ?? "" };
+        }));
+      })
+      .catch(() => {});
+  }, [row.id, sessionId]);
 
   const doneSets = sets.filter((s) => s.done).length;
   const allDone = doneSets === numSets;
@@ -471,11 +488,25 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   function handlePickerConfirm(v: number) {
     const field = picker!.field;
     const idx = picker!.setIdx;
+    setPicker(null);
     setSets((prev) => {
       const next = prev.map((ss, i) => i === idx ? { ...ss, [field]: v } : ss);
       if (field === "reps") doLog(idx, next);
       return next;
     });
+    // Offer to copy to other sets only when editing set 0 and there are multiple sets
+    if (idx === 0 && numSets > 1) {
+      setCopyPrompt({ field, value: v, fromIdx: 0 });
+    }
+  }
+
+  function applyCopyPrompt() {
+    if (!copyPrompt) return;
+    setSets((prev) => {
+      const next = prev.map((ss, i) => i === 0 ? ss : { ...ss, [copyPrompt.field]: copyPrompt.value });
+      return next;
+    });
+    setCopyPrompt(null);
   }
 
   return (
@@ -489,6 +520,23 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
           onConfirm={handlePickerConfirm}
           onClose={() => setPicker(null)}
         />
+      )}
+      {copyPrompt && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 90, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 0 120px" }} onClick={() => setCopyPrompt(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 16, padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 340, boxShadow: "0 8px 32px rgba(0,0,0,.4)" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+              Apply {copyPrompt.field === "weight" ? `${copyPrompt.value}${unit.toLowerCase()}` : `${copyPrompt.value} reps`} to all sets?
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={applyCopyPrompt} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none", background: "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+                Yes, copy
+              </button>
+              <button onClick={() => setCopyPrompt(null)} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "1px solid var(--line)", background: "none", color: "var(--dim)", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                No
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div style={{ background: "var(--panel)", border: `1px solid ${allDone ? "var(--good)" : "var(--line)"}`, borderRadius: 12, marginBottom: 8, overflow: "hidden", transition: "border-color .2s" }}>
