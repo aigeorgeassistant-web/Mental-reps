@@ -166,6 +166,7 @@ export function SessionEditor({
   );
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragBlockKey, setDragBlockKey] = useState<string | null>(null);
+  const [dragPayload, setDragPayload] = useState<{ kind: "copy-sets" | "copy-weight"; rowId: string } | null>(null);
 
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectAnchor, setSelectAnchor] = useState<number | null>(null);
@@ -234,11 +235,38 @@ export function SessionEditor({
   }
 
   function handleDrop(targetIndex: number) {
-    if (dragBlockKey !== null) {
+    if (dragPayload !== null) {
+      handleCopyDrop(targetIndex);
+    } else if (dragBlockKey !== null) {
       handleBlockDrop(targetIndex);
     } else {
       handleReorderDrop(targetIndex);
     }
+  }
+
+  function handleCopyDrop(targetIndex: number) {
+    if (!dragPayload) return;
+    const src = rows.find((r) => r.id === dragPayload.rowId);
+    const tgt = rows[targetIndex];
+    if (!src || !tgt || src.id === tgt.id) { setDragPayload(null); return; }
+    if (dragPayload.kind === "copy-sets") {
+      setSessionExerciseDetails(tgt.id, {
+        sets: src.sets ?? 0,
+        reps: src.reps ?? 0,
+        loadValue: tgt.loadValue ?? 0,
+        loadUnit: tgt.loadUnit ?? "KG",
+        coachNote: tgt.coachNote ?? null,
+      }).then(afterMutation);
+    } else {
+      setSessionExerciseDetails(tgt.id, {
+        sets: tgt.sets ?? 0,
+        reps: tgt.reps ?? 0,
+        loadValue: src.loadValue ?? 0,
+        loadUnit: src.loadUnit ?? "KG",
+        coachNote: tgt.coachNote ?? null,
+      }).then(afterMutation);
+    }
+    setDragPayload(null);
   }
 
   function handleReorderDrop(targetIndex: number) {
@@ -556,11 +584,12 @@ export function SessionEditor({
                   onMouseEnter={() => extendSelect(index)}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => handleDrop(index)}
-                  onDragStart={() => { setDragIndex(index); setDragBlockKey(null); }}
+                  onDragStart={() => { setDragIndex(index); setDragBlockKey(null); setDragPayload(null); }}
                   onEditTimer={() => openTimerEditor(row)}
                   onEditDetails={() => openDetailsEdit(row)}
                   onDelete={() => deleteOne(row.id)}
-                  detailsLabel={detailsSummary(row)}
+                  onDragSets={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-sets", rowId: row.id }); setDragIndex(null); setDragBlockKey(null); }}
+                  onDragWeight={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-weight", rowId: row.id }); setDragIndex(null); setDragBlockKey(null); }}
                 />
               );
             }
@@ -598,11 +627,12 @@ export function SessionEditor({
                           onMouseEnter={() => extendSelect(index)}
                           onDragOver={(e) => e.preventDefault()}
                           onDrop={() => handleDrop(index)}
-                          onDragStart={() => { setDragIndex(index); setDragBlockKey(null); }}
+                          onDragStart={() => { setDragIndex(index); setDragBlockKey(null); setDragPayload(null); }}
                           onEditTimer={() => openTimerEditor(row)}
                           onEditDetails={() => openDetailsEdit(row)}
                           onDelete={() => deleteOne(row.id)}
-                          detailsLabel={detailsSummary(row)}
+                          onDragSets={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-sets", rowId: row.id }); setDragIndex(null); setDragBlockKey(null); }}
+                          onDragWeight={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-weight", rowId: row.id }); setDragIndex(null); setDragBlockKey(null); }}
                         />
                       );
                     })}
@@ -975,7 +1005,7 @@ function SessionTitle({
   );
 }
 
-function RowMenuButton({ onDelete }: { onDelete: () => void }) {
+function RowMenuButton({ onDelete, onTimer }: { onDelete: () => void; onTimer: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -992,10 +1022,13 @@ function RowMenuButton({ onDelete }: { onDelete: () => void }) {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full mt-1 z-50 rounded border bg-white shadow-lg text-xs">
             <button
-              onClick={() => {
-                onDelete();
-                setOpen(false);
-              }}
+              onClick={() => { onTimer(); setOpen(false); }}
+              className="block w-full text-left px-3 py-1.5 text-neutral-700 hover:bg-neutral-50"
+            >
+              🕐 Timer
+            </button>
+            <button
+              onClick={() => { onDelete(); setOpen(false); }}
               className="block w-full text-left px-3 py-1.5 text-red-600 hover:bg-red-50"
             >
               Delete
@@ -1018,6 +1051,52 @@ function NotePopup({ note, onClose }: { note: string; onClose: () => void }) {
   );
 }
 
+function DraggablePill({
+  label,
+  hasNote,
+  noteText,
+  onEdit,
+  onDragStart,
+  accentColor,
+}: {
+  label: string | null;
+  hasNote?: boolean;
+  noteText?: string;
+  onEdit: () => void;
+  onDragStart: (e: React.DragEvent) => void;
+  accentColor?: string;
+}) {
+  const [noteOpen, setNoteOpen] = useState(false);
+  return (
+    <div className="relative shrink-0" onMouseDown={(e) => e.stopPropagation()}>
+      <button
+        draggable
+        onDragStart={onDragStart}
+        onClick={onEdit}
+        className="flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-semibold text-neutral-600 hover:border-neutral-400 hover:text-neutral-800 transition-colors cursor-grab active:cursor-grabbing"
+        style={{
+          background: accentColor ? `${accentColor}12` : undefined,
+          borderColor: accentColor ? `${accentColor}55` : undefined,
+        }}
+        title="Click to edit · Drag to copy"
+      >
+        {label ?? "—"}
+      </button>
+      {hasNote && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setNoteOpen((v) => !v); }}
+          className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 rounded-full border border-white text-[8px] flex items-center justify-center font-bold"
+          style={{ background: "#f59e0b", color: "#fff" }}
+          title="Coach note"
+        >
+          !
+        </button>
+      )}
+      {noteOpen && <NotePopup note={noteText ?? ""} onClose={() => setNoteOpen(false)} />}
+    </div>
+  );
+}
+
 function RowLine({
   row,
   index,
@@ -1032,7 +1111,8 @@ function RowLine({
   onEditTimer,
   onEditDetails,
   onDelete,
-  detailsLabel,
+  onDragSets,
+  onDragWeight,
 }: {
   row: Row;
   index: number;
@@ -1047,17 +1127,22 @@ function RowLine({
   onEditTimer: () => void;
   onEditDetails: () => void;
   onDelete: () => void;
-  detailsLabel: string | null;
+  onDragSets: (e: React.DragEvent) => void;
+  onDragWeight: (e: React.DragEvent) => void;
 }) {
-  const [noteOpen, setNoteOpen] = useState(false);
-  const hasNote = !!row.coachNote;
   const logged = row.loggedSets ?? [];
+  const setsRepsLabel = (() => {
+    if (row.sets && row.reps) return `${row.sets}×${row.reps}`;
+    if (row.reps) return `${row.reps} reps`;
+    return null;
+  })();
+  const weightLabel = row.loadValue ? `${row.loadValue}${row.loadUnit ? row.loadUnit.toLowerCase() : ""}` : null;
 
   return (
     <div
       onMouseDown={onMouseDown}
       onMouseEnter={onMouseEnter}
-      onDragOver={locked ? undefined : onDragOver}
+      onDragOver={(e) => { e.preventDefault(); onDragOver(e); }}
       onDrop={locked ? undefined : onDrop}
       style={{ borderLeft: row.groupColor ? `4px solid ${row.groupColor}` : undefined }}
       className={`relative flex items-center gap-2 rounded border px-2 py-2 text-sm bg-white transition-opacity ${
@@ -1077,12 +1162,12 @@ function RowLine({
       )}
 
       {/* Exercise name */}
-      <span data-role="exercise-name" className="min-w-0 shrink-0 cursor-pointer hover:underline" style={{ maxWidth: "30%" }}>
+      <span data-role="exercise-name" className="min-w-0 shrink-0 cursor-pointer hover:underline" style={{ maxWidth: "28%" }}>
         {row.exercise.name}
       </span>
 
-      {/* Logged sets — middle, only if data exists */}
-      {logged.length > 0 && (
+      {/* Logged sets — middle */}
+      {logged.length > 0 ? (
         <div className="flex flex-1 flex-wrap gap-1 px-1">
           {logged
             .filter((s) => s.weight !== null || s.reps !== null)
@@ -1097,43 +1182,33 @@ function RowLine({
               </span>
             ))}
         </div>
+      ) : (
+        <div className="flex-1" />
       )}
-      {logged.length === 0 && <div className="flex-1" />}
 
-      {/* Details pill with note dot */}
-      <div className="relative shrink-0" onMouseDown={(e) => e.stopPropagation()}>
-        <button
-          onClick={onEditDetails}
-          className="flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-semibold text-neutral-600 hover:border-neutral-400 hover:text-neutral-800 transition-colors"
-          style={{ background: detailsLabel ? "rgba(46,143,255,.07)" : undefined, borderColor: detailsLabel ? "rgba(46,143,255,.3)" : undefined }}
-        >
-          {detailsLabel ?? "Set details"}
-        </button>
-        {hasNote && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setNoteOpen((v) => !v); }}
-            className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 rounded-full border border-white text-[8px] flex items-center justify-center font-bold"
-            style={{ background: "#f59e0b", color: "#fff" }}
-            title="Coach note"
-          >
-            !
-          </button>
-        )}
-        {noteOpen && <NotePopup note={row.coachNote ?? ""} onClose={() => setNoteOpen(false)} />}
-      </div>
+      {/* Sets×reps pill */}
+      {!locked && (
+        <DraggablePill
+          label={setsRepsLabel}
+          hasNote={!!row.coachNote}
+          noteText={row.coachNote ?? ""}
+          onEdit={onEditDetails}
+          onDragStart={onDragSets}
+          accentColor="#2e8fff"
+        />
+      )}
 
-      {/* Timer button */}
-      <button
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={onEditTimer}
-        className="shrink-0 flex items-center justify-center rounded border px-2 py-1 text-neutral-400 hover:text-neutral-700 hover:border-neutral-400 transition-colors"
-        style={{ fontSize: 13 }}
-        title="Timer"
-      >
-        🕐
-      </button>
+      {/* Weight pill */}
+      {!locked && (
+        <DraggablePill
+          label={weightLabel}
+          onEdit={onEditDetails}
+          onDragStart={onDragWeight}
+          accentColor="#8b5cf6"
+        />
+      )}
 
-      {!locked && <RowMenuButton onDelete={onDelete} />}
+      {!locked && <RowMenuButton onDelete={onDelete} onTimer={onEditTimer} />}
     </div>
   );
 }
