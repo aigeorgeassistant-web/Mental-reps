@@ -378,13 +378,12 @@ function SetRow({ s, i, row, sessionId, unit, onPicker, onChange }: {
     <div style={{ marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
         <span style={{ fontSize: 12, color: "var(--dim)", fontFamily: "monospace", width: 18, flexShrink: 0 }}>{i + 1}</span>
-        <button onClick={() => onPicker("weight")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 20, fontWeight: 800, padding: "10px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
-          {s.weight % 1 === 0 ? s.weight : s.weight.toFixed(1)}
+        <button onClick={() => onPicker("weight")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.weight ? "var(--text)" : "var(--dim)", fontSize: s.weight ? 20 : 12, fontWeight: 800, padding: "10px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
+          {s.weight ? (s.weight % 1 === 0 ? s.weight : s.weight.toFixed(1)) : unit.toLowerCase()}
         </button>
-        <span style={{ fontSize: 11, color: "var(--dim)", flexShrink: 0 }}>{unit.toLowerCase()}</span>
         <span style={{ fontSize: 14, color: "var(--dim)", flexShrink: 0 }}>×</span>
-        <button onClick={() => onPicker("reps")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 20, fontWeight: 800, padding: "10px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
-          {s.reps}
+        <button onClick={() => onPicker("reps")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.reps ? "var(--text)" : "var(--dim)", fontSize: s.reps ? 20 : 12, fontWeight: 800, padding: "10px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
+          {s.reps || "reps"}
         </button>
         {/* Square checkmark — grey ✓ idle, green ✓ done */}
         <div style={{ width: 42, height: 42, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 22, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center" }}>✓</div>
@@ -504,6 +503,10 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
     if (!copyPrompt) return;
     setSets((prev) => {
       const next = prev.map((ss, i) => i === 0 ? ss : { ...ss, [copyPrompt.field]: copyPrompt.value });
+      // Log each copied set so checkmarks fire
+      next.forEach((ss, i) => {
+        if (i !== 0) doLog(i, next);
+      });
       return next;
     });
     setCopyPrompt(null);
