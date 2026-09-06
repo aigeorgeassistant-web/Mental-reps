@@ -437,7 +437,7 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
               {/* Tabs */}
               <div style={S.tabBar}>
                 {(["progress", "compare"] as const).map((t) => (
-                  <button key={t} onClick={() => setActiveTab(t)} style={{ fontSize: 11, padding: "7px 12px", color: activeTab === t ? "#185FA5" : "#888", borderBottom: activeTab === t ? "2px solid #378ADD" : "2px solid transparent", fontWeight: activeTab === t ? 500 : 400, background: "none", border: "none", borderBottom: activeTab === t ? "2px solid #378ADD" : "2px solid transparent", cursor: "pointer", fontFamily: "inherit" }}>
+                  <button key={t} onClick={() => setActiveTab(t)} style={{ fontSize: 11, padding: "7px 12px", color: activeTab === t ? "#185FA5" : "#888", borderBottom: activeTab === t ? "2px solid #378ADD" : "2px solid transparent", borderTop: "none", borderLeft: "none", borderRight: "none", fontWeight: activeTab === t ? 500 : 400, background: "none", cursor: "pointer", fontFamily: "inherit" }}>
                     {t.charAt(0).toUpperCase() + t.slice(1)}
                   </button>
                 ))}
