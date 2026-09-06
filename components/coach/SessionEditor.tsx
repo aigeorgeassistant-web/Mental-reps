@@ -746,7 +746,7 @@ export function SessionEditor({
                         >
                           {displayTime}
                         </button>
-                        <RowMenuButton onDelete={() => deleteOne(row.id)} />
+                        <RowMenuButton onDelete={() => deleteOne(row.id)} onTimer={() => openTimerEditor(row)} />
                       </div>
                     );
                   })}
