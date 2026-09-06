@@ -166,7 +166,7 @@ export function SessionEditor({
   );
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragBlockKey, setDragBlockKey] = useState<string | null>(null);
-  const [dragPayload, setDragPayload] = useState<{ kind: "copy-sets" | "copy-weight"; rowId: string } | null>(null);
+  const [dragPayload, setDragPayload] = useState<{ kind: "copy-sets" | "copy-weight" | "copy-timing"; rowId: string } | null>(null);
 
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectAnchor, setSelectAnchor] = useState<number | null>(null);
@@ -257,7 +257,7 @@ export function SessionEditor({
         loadUnit: tgt.loadUnit ?? "KG",
         coachNote: tgt.coachNote ?? null,
       }).then(afterMutation);
-    } else {
+    } else if (dragPayload.kind === "copy-weight") {
       setSessionExerciseDetails(tgt.id, {
         sets: tgt.sets ?? 0,
         reps: tgt.reps ?? 0,
@@ -265,6 +265,9 @@ export function SessionEditor({
         loadUnit: src.loadUnit ?? "KG",
         coachNote: tgt.coachNote ?? null,
       }).then(afterMutation);
+    } else if (dragPayload.kind === "copy-timing") {
+      // Copy target string (timing) from src to tgt
+      setSessionExerciseTarget(tgt.id, src.target ?? "").then(afterMutation);
     }
     setDragPayload(null);
   }
@@ -699,12 +702,19 @@ export function SessionEditor({
                     const showReps = block.kind !== "emom";
                     const dLabel = detailsSummary(row);
 
+                    const setsRepsLabelTimed = (() => {
+                      if (row.sets && row.reps) return `${row.sets}×${row.reps}`;
+                      if (row.reps) return `${row.reps} reps`;
+                      return null;
+                    })();
+                    const weightLabelTimed = row.loadValue ? `${row.loadValue}${row.loadUnit ? row.loadUnit.toLowerCase() : ""}` : null;
+
                     return (
                       <div
                         key={row.id}
                         onMouseDown={(e) => startSelect(e, index)}
                         onMouseEnter={() => extendSelect(index)}
-                        onDragOver={(e) => e.preventDefault()}
+                        onDragOver={(e) => { e.preventDefault(); }}
                         onDrop={() => handleDrop(index)}
                         className={`relative flex items-center gap-2 rounded px-2 py-1.5 text-sm bg-white ${
                           isRowInSelection(index) ? "bg-blue-50" : ""
@@ -713,7 +723,7 @@ export function SessionEditor({
                         <span
                           draggable
                           onMouseDown={(e) => e.stopPropagation()}
-                          onDragStart={() => { setDragIndex(index); setDragBlockKey(null); }}
+                          onDragStart={() => { setDragIndex(index); setDragBlockKey(null); setDragPayload(null); }}
                           className="cursor-grab select-none text-neutral-400"
                           title="Drag to reorder"
                         >
@@ -721,31 +731,41 @@ export function SessionEditor({
                         </span>
                         <span
                           data-role="exercise-name"
-                          className="flex-1 cursor-pointer hover:underline"
+                          className="min-w-0 shrink-0 cursor-pointer hover:underline"
+                          style={{ maxWidth: "28%" }}
                         >
                           {row.exercise.name}
                         </span>
-                        {dLabel && <span className="text-[10px] text-neutral-400">{dLabel}</span>}
-                        <button
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={() => openDetailsEdit(row, { showSets, showReps })}
-                          className="text-[11px] text-neutral-400 hover:text-neutral-700 underline"
-                        >
-                          Details
-                        </button>
-                        <button
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={() =>
+                        <div className="flex-1" />
+                        {/* Sets×reps pill */}
+                        <DraggablePill
+                          label={setsRepsLabelTimed}
+                          hasNote={!!row.coachNote}
+                          noteText={row.coachNote ?? ""}
+                          onEdit={() => openDetailsEdit(row, { showSets, showReps })}
+                          onDragStart={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-sets", rowId: row.id }); setDragIndex(null); setDragBlockKey(null); }}
+                          accentColor="#2e8fff"
+                        />
+                        {/* Weight pill */}
+                        <DraggablePill
+                          label={weightLabelTimed}
+                          onEdit={() => openDetailsEdit(row, { showSets, showReps })}
+                          onDragStart={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-weight", rowId: row.id }); setDragIndex(null); setDragBlockKey(null); }}
+                          accentColor="#8b5cf6"
+                        />
+                        {/* Timing pill */}
+                        <DraggablePill
+                          label={displayTime || "timing"}
+                          onEdit={() =>
                             block.kind === "circuit"
                               ? openCircuitRowEdit(block, row, isFirst)
                               : block.kind === "interval"
                               ? openIntervalRowEdit(row, 3)
                               : openEmomRowEdit(row, block.roundSec)
                           }
-                          className="text-[11px] text-neutral-500 hover:text-neutral-800 underline"
-                        >
-                          {displayTime}
-                        </button>
+                          onDragStart={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-timing", rowId: row.id } as any); setDragIndex(null); setDragBlockKey(null); }}
+                          accentColor="#10b981"
+                        />
                         <RowMenuButton onDelete={() => deleteOne(row.id)} onTimer={() => openTimerEditor(row)} />
                       </div>
                     );
@@ -1080,7 +1100,7 @@ function DraggablePill({
         }}
         title="Click to edit · Drag to copy"
       >
-        {label ?? "—"}
+        {label ?? <span style={{ opacity: 0.4 }}>—</span>}
       </button>
       {hasNote && (
         <button
@@ -1189,22 +1209,22 @@ function RowLine({
       {/* Sets×reps pill */}
       {!locked && (
         <DraggablePill
-          label={setsRepsLabel}
+          label={setsRepsLabel ?? "sets × reps"}
           hasNote={!!row.coachNote}
           noteText={row.coachNote ?? ""}
           onEdit={onEditDetails}
           onDragStart={onDragSets}
-          accentColor="#2e8fff"
+          accentColor={setsRepsLabel ? "#2e8fff" : undefined}
         />
       )}
 
       {/* Weight pill */}
       {!locked && (
         <DraggablePill
-          label={weightLabel}
+          label={weightLabel ?? (row.loadUnit ? row.loadUnit.toLowerCase() : "kg")}
           onEdit={onEditDetails}
           onDragStart={onDragWeight}
-          accentColor="#8b5cf6"
+          accentColor={weightLabel ? "#8b5cf6" : undefined}
         />
       )}
 
