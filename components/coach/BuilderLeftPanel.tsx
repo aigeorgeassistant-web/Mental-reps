@@ -211,7 +211,16 @@ export function BuilderLeftPanel({
   return (
     <div className="w-1/4 border-r flex flex-col">
       <div className="p-4 border-b flex items-center justify-between">
-        <p className="text-sm font-medium">{client.name}</p>
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="text-sm font-medium truncate">{client.name}</p>
+          <a
+            href={`/coach/clients/${client.id}/performance`}
+            title="Performance"
+            className="shrink-0 flex items-center justify-center w-6 h-6 rounded border border-neutral-200 text-neutral-400 hover:text-blue-600 hover:border-blue-300 transition-colors text-xs"
+          >
+            ▲
+          </a>
+        </div>
         {dropStatus && (
           <span className={`text-xs ${dropStatus.startsWith("✓") ? "text-green-600" : dropStatus.includes("…") ? "text-blue-500" : "text-red-500"}`}>
             {dropStatus}
