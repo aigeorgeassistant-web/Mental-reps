@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -107,7 +107,6 @@ function buildExerciseSummaries(loggedSets: LoggedSet[]): ExerciseSummary[] {
 
   return Array.from(byEx.entries()).map(([exerciseId, sets]) => {
     const ex = sets[0].exercise;
-    // Group by session date
     const bySession = new Map<string, LoggedSet[]>();
     for (const s of sets) {
       const key = s.session?.date ?? s.date;
@@ -187,7 +186,6 @@ function ScatterPlot({ pairs, color }: { pairs: [number, number][]; color: strin
   const toX = (v: number) => pad + ((v - minX) / (maxX - minX || 1)) * (W - pad * 2);
   const toY = (v: number) => H - pad - ((v - minY) / (maxY - minY || 1)) * (H - pad * 2);
 
-  // Regression line
   const r = corr(pairs);
   let linePts = "";
   if (r !== null && pairs.length >= 2) {
@@ -205,7 +203,10 @@ function ScatterPlot({ pairs, color }: { pairs: [number, number][]; color: strin
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
       {linePts && <polyline points={linePts} fill="none" stroke={color} strokeWidth="1" strokeDasharray="3,2" opacity="0.4" />}
       {pairs.map(([x, y], i) => (
-        <circle key={i} cx={toX(x)} cy={toY(y)} r="3.5" fill={color} opacity="0.75" />
+        <g key={i}>
+          <title>Check-in: {x} · Δ perf: {y > 0 ? "+" : ""}{y}%</title>
+          <circle cx={toX(x)} cy={toY(y)} r="3.5" fill={color} opacity="0.75" />
+        </g>
       ))}
     </svg>
   );
@@ -237,6 +238,9 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
   const [activeTab, setActiveTab] = useState<"progress" | "compare">("progress");
   const [chartMetric, setChartMetric] = useState<"maxWeight" | "totalVolume" | "estimated1RM">("maxWeight");
   const [compareExId, setCompareExId] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<"all" | "year" | "3m">("all");
+  const [chartTooltip, setChartTooltip] = useState<{ xPct: number; yPct: number; lines: string[] } | null>(null);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
 
   const filteredSummaries = useMemo(() =>
     selectedMG === "All" ? summaries : summaries.filter((ex) => ex.muscleGroups.includes(selectedMG)),
@@ -246,18 +250,46 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
   const selected = useMemo(() => summaries.find((ex) => ex.exerciseId === selectedExId) ?? null, [summaries, selectedExId]);
   const compareEx = useMemo(() => summaries.find((ex) => ex.exerciseId === compareExId) ?? null, [summaries, compareExId]);
 
-  // Correlation pairs: checkin metric vs performance delta (% change from prev session)
-  function corrPairs(metric: "sleep" | "mood" | "hydration" | "stress", ex: ExerciseSummary) {
+  // Date-range filtered sessions
+  const rangedSessions = useMemo(() => {
+    if (!selected) return [];
+    const now = new Date();
+    return selected.sessions.filter((s) => {
+      if (dateRange === "all") return true;
+      const d = new Date(s.date);
+      if (dateRange === "year") return d.getFullYear() === now.getFullYear();
+      if (dateRange === "3m") {
+        const cutoff = new Date(now);
+        cutoff.setMonth(cutoff.getMonth() - 3);
+        return d >= cutoff;
+      }
+      return true;
+    });
+  }, [selected, dateRange]);
+
+  // Correlation pairs: checkin metric vs selected chart metric delta
+  function corrPairs(metric: "sleep" | "mood" | "hydration" | "stress", sessions: SessionData[]) {
     const pairs: [number, number][] = [];
-    for (let i = 1; i < ex.sessions.length; i++) {
-      const prev = ex.sessions[i - 1];
-      const curr = ex.sessions[i];
+    for (let i = 1; i < sessions.length; i++) {
+      const prev = sessions[i - 1];
+      const curr = sessions[i];
       const ciVal = curr.checkIn?.[metric];
-      if (ciVal == null || prev.maxWeight === 0) continue;
-      const delta = ((curr.maxWeight - prev.maxWeight) / prev.maxWeight) * 100;
+      const prevVal = prev[chartMetric];
+      const currVal = curr[chartMetric];
+      if (ciVal == null || prevVal === 0) continue;
+      const delta = ((currVal - prevVal) / prevVal) * 100;
       pairs.push([ciVal, Math.round(delta * 10) / 10]);
     }
     return pairs;
+  }
+
+  // Progression: best value in range vs first in range (fixed)
+  function progressionPct(sessions: SessionData[]) {
+    if (sessions.length < 2) return null;
+    const first = sessions[0][chartMetric];
+    if (!first) return null;
+    const best = Math.max(...sessions.map((s) => s[chartMetric]));
+    return Math.round(((best - first) / first) * 100);
   }
 
   // Export CSV
@@ -277,57 +309,97 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
     a.click();
   }
 
-  // Chart data for selected exercise
-  const chartValues = selected?.sessions.map((s) => s[chartMetric]) ?? [];
-  const chartDates = selected?.sessions.map((s) => s.date.slice(5)) ?? [];
-  const chartDots = selected?.sessions.map((s) => checkinDotColor(s.checkIn)) ?? [];
+  // Chart data from date-ranged sessions
+  const chartValues = rangedSessions.map((s) => s[chartMetric]);
+  const chartDates = rangedSessions.map((s) => s.date.slice(5));
+  const chartDots = rangedSessions.map((s) => checkinDotColor(s.checkIn));
+  const chartCheckIns = rangedSessions.map((s) => s.checkIn);
 
-  // Normalised compare data (% from first session)
+  const metricUnit = chartMetric === "maxWeight" ? "kg" : chartMetric === "totalVolume" ? "kg vol" : "kg 1RM";
+  const metricLabel = chartMetric === "maxWeight" ? "Max weight" : chartMetric === "totalVolume" ? "Volume" : "Est. 1RM";
+
+  // Normalised compare data — uses chartMetric
   function normalise(sessions: SessionData[]) {
-    const base = sessions[0]?.maxWeight;
+    const base = sessions[0]?.[chartMetric];
     if (!base) return [];
-    return sessions.map((s) => Math.round(((s.maxWeight - base) / base) * 100));
+    return sessions.map((s) => Math.round(((s[chartMetric] - base) / base) * 100));
   }
 
-  // Chart SVG
+  // ─── Chart SVG — fills container, tooltip on hover/tap ──────────────────────
   function ChartSVG() {
     if (!chartValues.length) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#888", fontSize: 12 }}>No data yet</div>;
-    const W = 400; const H = 130; const padL = 32; const padB = 20; const padR = 16; const padT = 10;
+    const W = 400; const H = 180; const padL = 32; const padB = 20; const padR = 16; const padT = 10;
     const min = Math.min(...chartValues);
     const max = Math.max(...chartValues) || 1;
     const toX = (i: number) => padL + (i / (chartValues.length - 1 || 1)) * (W - padL - padR);
     const toY = (v: number) => padT + ((max - v) / (max - min || 1)) * (H - padT - padB);
     const pts = chartValues.map((v, i) => `${toX(i)},${toY(v)}`).join(" ");
     const labelEvery = Math.ceil(chartDates.length / 5);
+
     return (
-      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block", flex: 1 }}>
+      <svg
+        width="100%"
+        height="100%"
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        style={{ display: "block" }}
+      >
+        {/* Gridlines */}
+        {[min, Math.round((min + max) / 2), max].map((v, i) => (
+          <g key={i}>
+            <line x1={padL} y1={toY(v)} x2={W - padR} y2={toY(v)} stroke="#eee" strokeWidth="0.5" />
+            <text x={padL - 3} y={toY(v) + 3} fontSize="8" fill="#bbb" textAnchor="end">{Math.round(v)}</text>
+          </g>
+        ))}
+        {/* Line */}
         <polyline points={pts} fill="none" stroke="#378ADD" strokeWidth="2" strokeLinejoin="round" />
+        {/* Dots */}
         {chartValues.map((v, i) => {
           const dot = chartDots[i];
+          const ci = chartCheckIns[i];
+          const tooltipLines = [
+            `${chartDates[i]}  ${v}${metricUnit}`,
+            ci ? `😴 ${ci.sleep ?? "—"}  🧠 ${ci.mood ?? "—"}  💧 ${ci.hydration ?? "—"}  ⚡ ${ci.stress ?? "—"}` : null,
+          ].filter(Boolean) as string[];
+          const xPct = (toX(i) / W) * 100;
+          const yPct = (toY(v) / H) * 100;
           return (
-            <g key={i}>
-              <circle cx={toX(i)} cy={toY(v)} r="4" fill={dot ?? "#378ADD"} opacity={dot ? 0.9 : 0.5} />
-              <title>{chartDates[i]}: {v}{chartMetric === "maxWeight" ? "kg" : chartMetric === "totalVolume" ? "kg vol" : "kg 1RM"}</title>
+            <g
+              key={i}
+              style={{ cursor: dot ? "pointer" : "default" }}
+              onMouseEnter={() => dot && setChartTooltip({ xPct, yPct, lines: tooltipLines })}
+              onMouseLeave={() => setChartTooltip(null)}
+              onTouchStart={(e) => { e.preventDefault(); dot && setChartTooltip({ xPct, yPct, lines: tooltipLines }); }}
+            >
+              {/* Larger invisible hit area */}
+              <circle cx={toX(i)} cy={toY(v)} r="12" fill="transparent" />
+              <circle
+                cx={toX(i)}
+                cy={toY(v)}
+                r={dot ? 5 : 3}
+                fill={dot ?? "#378ADD"}
+                stroke={dot ? "#fff" : "none"}
+                strokeWidth={dot ? 1.5 : 0}
+                opacity={dot ? 0.95 : 0.45}
+              />
             </g>
           );
         })}
+        {/* X-axis labels */}
         {chartDates.map((d, i) => i % labelEvery === 0 && (
-          <text key={i} x={toX(i)} y={H - 4} fontSize="8" fill="#aaa" textAnchor="middle">{d}</text>
-        ))}
-        {[min, Math.round((min + max) / 2), max].map((v, i) => (
-          <text key={i} x={padL - 3} y={toY(v) + 3} fontSize="8" fill="#aaa" textAnchor="end">{Math.round(v)}</text>
+          <text key={i} x={toX(i)} y={H - 4} fontSize="8" fill="#bbb" textAnchor="middle">{d}</text>
         ))}
       </svg>
     );
   }
 
-  // Compare chart SVG
+  // ─── Compare chart SVG ───────────────────────────────────────────────────────
   function CompareChartSVG() {
     if (!selected || !compareEx) return null;
     const n1 = normalise(selected.sessions);
     const n2 = normalise(compareEx.sessions);
     if (!n1.length && !n2.length) return <div style={{ color: "#888", fontSize: 12 }}>No data</div>;
-    const W = 400; const H = 130; const padL = 36; const padB = 20; const padR = 16; const padT = 10;
+    const W = 400; const H = 140; const padL = 36; const padB = 20; const padR = 16; const padT = 10;
     const allVals = [...n1, ...n2];
     const min = Math.min(0, ...allVals);
     const max = Math.max(0, ...allVals) || 1;
@@ -339,14 +411,34 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
     const zeroY = toY(0);
     const prog1 = n1[n1.length - 1] ?? 0;
     const prog2 = n2[n2.length - 1] ?? 0;
+
+    // Divergence shading
+    const minLen = Math.min(n1.length, n2.length);
+    let divergePath = "";
+    if (minLen >= 2) {
+      const fwd = Array.from({ length: minLen }, (_, i) => {
+        const x = padL + (i / (minLen - 1)) * (W - padL - padR);
+        const y = toY(n1[Math.round((i / (minLen - 1)) * (n1.length - 1))]);
+        return `${x},${y}`;
+      });
+      const bwd = Array.from({ length: minLen }, (_, i) => {
+        const ri = minLen - 1 - i;
+        const x = padL + (ri / (minLen - 1)) * (W - padL - padR);
+        const y = toY(n2[Math.round((ri / (minLen - 1)) * (n2.length - 1))]);
+        return `${x},${y}`;
+      });
+      divergePath = `M ${fwd.join(" L ")} L ${bwd.join(" L ")} Z`;
+    }
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
           <line x1={padL} y1={zeroY} x2={W - padR} y2={zeroY} stroke="#ddd" strokeWidth="0.5" strokeDasharray="3,2" />
+          {divergePath && <path d={divergePath} fill="#8b5cf6" opacity="0.07" />}
           {pts1 && <polyline points={pts1} fill="none" stroke="#378ADD" strokeWidth="2" strokeLinejoin="round" />}
           {pts2 && <polyline points={pts2} fill="none" stroke="#8b5cf6" strokeWidth="2" strokeLinejoin="round" />}
           {[min, 0, max].map((v, i) => (
-            <text key={i} x={padL - 3} y={toY(v) + 3} fontSize="8" fill="#aaa" textAnchor="end">{Math.round(v)}%</text>
+            <text key={i} x={padL - 3} y={toY(v) + 3} fontSize="8" fill="#bbb" textAnchor="end">{Math.round(v)}%</text>
           ))}
         </svg>
         <div style={{ display: "flex", gap: 16, fontSize: 11 }}>
@@ -381,6 +473,8 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
     sessionTable: { padding: "0 12px 8px", overflowY: "auto", flexShrink: 0, maxHeight: 130 },
     corrSection: { borderTop: "0.5px solid #e5e5e5", padding: "10px 12px", background: "#fafafa", flexShrink: 0 },
   };
+
+  const progPct = progressionPct(rangedSessions);
 
   if (loading) return <div style={{ padding: 40, color: "#888", fontSize: 13 }}>Loading performance data…</div>;
 
@@ -445,26 +539,54 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
 
               {activeTab === "progress" && (
                 <div style={S.detailBody}>
-                  {/* Chart */}
+                  {/* Chart area */}
                   <div style={S.chartArea}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      {(["maxWeight", "totalVolume", "estimated1RM"] as const).map((m) => (
-                        <button key={m} onClick={() => setChartMetric(m)} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, border: `0.5px solid ${chartMetric === m ? "#378ADD" : "#ddd"}`, color: chartMetric === m ? "#185FA5" : "#888", background: chartMetric === m ? "#EBF4FF" : "#fff", cursor: "pointer", fontFamily: "inherit" }}>
-                          {m === "maxWeight" ? "Max weight" : m === "totalVolume" ? "Volume" : "Est. 1RM"}
-                        </button>
-                      ))}
+                    {/* Controls row: metric toggle + date range */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6, flexShrink: 0 }}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {(["maxWeight", "totalVolume", "estimated1RM"] as const).map((m) => (
+                          <button key={m} onClick={() => { setChartMetric(m); setChartTooltip(null); }} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, border: `0.5px solid ${chartMetric === m ? "#378ADD" : "#ddd"}`, color: chartMetric === m ? "#185FA5" : "#888", background: chartMetric === m ? "#EBF4FF" : "#fff", cursor: "pointer", fontFamily: "inherit" }}>
+                            {m === "maxWeight" ? "Max weight" : m === "totalVolume" ? "Volume" : "Est. 1RM"}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {(["all", "year", "3m"] as const).map((r) => (
+                          <button key={r} onClick={() => setDateRange(r)} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, border: `0.5px solid ${dateRange === r ? "#378ADD" : "#ddd"}`, color: dateRange === r ? "#185FA5" : "#aaa", background: dateRange === r ? "#EBF4FF" : "#fff", cursor: "pointer", fontFamily: "inherit" }}>
+                            {r === "all" ? "All time" : r === "year" ? "This year" : "3 months"}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div style={{ flex: 1, border: "0.5px solid #e5e5e5", borderRadius: 8, background: "#fafafa", overflow: "hidden", display: "flex", minHeight: 130 }}>
+                    {/* Chart container — fills space, tooltip on hover */}
+                    <div
+                      ref={chartContainerRef}
+                      style={{ flex: 1, minHeight: 0, border: "0.5px solid #e5e5e5", borderRadius: 8, background: "#fafafa", overflow: "hidden", display: "flex", position: "relative" }}
+                      onMouseLeave={() => setChartTooltip(null)}
+                    >
                       <ChartSVG />
-                    </div>
-                    {/* Legend */}
-                    <div style={{ display: "flex", gap: 10, fontSize: 9, color: "#aaa", flexWrap: "wrap" }}>
-                      {[{ c: "#378ADD", l: "Max weight" }, { c: "#22c55e", l: "Good check-in" }, { c: "#f59e0b", l: "Avg check-in" }, { c: "#ef4444", l: "Poor check-in" }].map((item) => (
-                        <span key={item.l} style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                          <span style={{ width: 7, height: 7, borderRadius: "50%", background: item.c, display: "inline-block" }} />
-                          {item.l}
-                        </span>
-                      ))}
+                      {chartTooltip && (
+                        <div style={{
+                          position: "absolute",
+                          left: `${chartTooltip.xPct}%`,
+                          top: `${chartTooltip.yPct}%`,
+                          transform: chartTooltip.yPct < 30
+                            ? "translate(-50%, 10px)"
+                            : "translate(-50%, calc(-100% - 10px))",
+                          background: "rgba(26,26,26,0.92)",
+                          color: "#fff",
+                          padding: "5px 9px",
+                          borderRadius: 6,
+                          fontSize: 10,
+                          lineHeight: "1.7",
+                          whiteSpace: "pre",
+                          pointerEvents: "none",
+                          zIndex: 10,
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+                        }}>
+                          {chartTooltip.lines.map((l, i) => <div key={i}>{l}</div>)}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -473,8 +595,17 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
                     {[
                       { label: "Best ever", val: `${selected.bestWeight}kg`, sub: `× ${selected.bestReps} · ${selected.bestDate.slice(5)}` },
                       { label: "Est. 1RM", val: `${epley(selected.bestWeight, selected.bestReps)}kg`, sub: "Epley formula" },
-                      { label: "Progression", val: (() => { const v = normalise(selected.sessions); const p = v[v.length - 1] ?? 0; return `${p >= 0 ? "+" : ""}${p}%`; })(), sub: "vs first session", color: (() => { const v = normalise(selected.sessions); return (v[v.length - 1] ?? 0) >= 0 ? "#22c55e" : "#ef4444"; })() },
-                      { label: "Sessions", val: String(selected.sessionCount), sub: "logged total" },
+                      {
+                        label: "Progression",
+                        val: progPct !== null ? `${progPct >= 0 ? "+" : ""}${progPct}%` : "—",
+                        sub: dateRange === "all" ? "best vs first" : dateRange === "year" ? "this year" : "last 3 months",
+                        color: progPct !== null ? (progPct >= 0 ? "#22c55e" : "#ef4444") : "#888",
+                      },
+                      {
+                        label: "Sessions",
+                        val: String(rangedSessions.length),
+                        sub: dateRange === "all" ? "logged total" : "in range",
+                      },
                     ].map((s) => (
                       <div key={s.label} style={{ background: "#f5f5f5", borderRadius: 8, border: "0.5px solid #e5e5e5", padding: "8px 10px" }}>
                         <div style={{ fontSize: 9, color: "#aaa", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 3 }}>{s.label}</div>
@@ -532,9 +663,11 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
                 </table>
               </div>
 
-              {/* Correlation plots */}
+              {/* Correlation plots — respond to chartMetric + dateRange */}
               <div style={S.corrSection}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: "#888", marginBottom: 8 }}>Check-in correlations — {selected.name}</div>
+                <div style={{ fontSize: 11, fontWeight: 500, color: "#888", marginBottom: 8 }}>
+                  Check-in vs <span style={{ color: "#185FA5" }}>{metricLabel}</span> — {selected.name}
+                </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {([
                     { key: "sleep", label: "😴 Sleep", color: "#378ADD" },
@@ -542,12 +675,12 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
                     { key: "stress", label: "⚡ Stress", color: "#ef4444" },
                     { key: "hydration", label: "💧 Hydration", color: "#06b6d4" },
                   ] as const).map(({ key, label, color }) => {
-                    const pairs = corrPairs(key, selected);
+                    const pairs = corrPairs(key, rangedSessions);
                     const r = corr(pairs);
                     const cl = corrLabel(r);
                     return (
                       <div key={key} style={{ border: "0.5px solid #e5e5e5", borderRadius: 8, padding: 8, background: "#fff", flex: "1 1 120px" }}>
-                        <div style={{ fontSize: 10, fontWeight: 500, color: "#555", marginBottom: 4 }}>{label} vs performance</div>
+                        <div style={{ fontSize: 10, fontWeight: 500, color: "#555", marginBottom: 4 }}>{label}</div>
                         <ScatterPlot pairs={pairs} color={color} />
                         <div style={{ fontSize: 9, color: "#aaa", marginTop: 4 }}>
                           {r !== null ? <>r = <span style={{ color: cl.color, fontWeight: 500 }}>{r}</span> · {cl.text}</> : <span style={{ color: "#bbb" }}>need 3+ sessions with check-in</span>}
