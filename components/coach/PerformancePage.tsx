@@ -243,7 +243,8 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
   const [chartMetric, setChartMetric] = useState<"maxWeight" | "totalVolume" | "estimated1RM">("maxWeight");
   const [compareExId, setCompareExId] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<"all" | "year" | "3m">("all");
-  const [chartTooltip, setChartTooltip] = useState<{ xPct: number; yPct: number; lines: string[] } | null>(null);
+  const [chartTooltip, setChartTooltip] = useState<{ xPct: number; yPct: number; label: string } | null>(null);
+  const [chartPopup, setChartPopup] = useState<{ xPct: number; yPct: number; session: SessionData } | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
   const filteredSummaries = useMemo(() =>
@@ -361,24 +362,32 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
         {chartValues.map((v, i) => {
           const dot = chartDots[i];
           const ci = chartCheckIns[i];
-          const sessionSets = rangedSessions[i]?.sets ?? [];
-          const setsLine = sessionSets.length
-            ? sessionSets.map((s) => `${s.weight}×${s.reps}`).join("  ")
-            : null;
-          const tooltipLines = [
-            `${chartDates[i]}  ${v}${metricUnit}`,
-            setsLine,
-            ci ? `😴 ${ci.sleep ?? "—"}  🧠 ${ci.mood ?? "—"}  💧 ${ci.hydration ?? "—"}  ⚡ ${ci.stress ?? "—"}` : null,
-          ].filter(Boolean) as string[];
+          const sessionData = rangedSessions[i];
           const xPct = (toX(i) / W) * 100;
           const yPct = (toY(v) / H) * 100;
+          const hoverLabel = `${chartDates[i]} · ${sessionData?.sets?.[0] ? `${sessionData.sets[0].weight}×${sessionData.sets[0].reps}` : `${v}${metricUnit}`}`;
           return (
             <g
               key={i}
               style={{ cursor: dot ? "pointer" : "default" }}
-              onMouseEnter={() => dot && setChartTooltip({ xPct, yPct, lines: tooltipLines })}
+              onMouseEnter={() => dot && setChartTooltip({ xPct, yPct, label: hoverLabel })}
               onMouseLeave={() => setChartTooltip(null)}
-              onTouchStart={(e) => { e.preventDefault(); dot && setChartTooltip({ xPct, yPct, lines: tooltipLines }); }}
+              onClick={(e) => {
+                if (!dot || !sessionData) return;
+                e.stopPropagation();
+                setChartTooltip(null);
+                setChartPopup((prev) =>
+                  prev?.xPct === xPct ? null : { xPct, yPct, session: sessionData }
+                );
+              }}
+              onTouchStart={(e) => {
+                if (!dot || !sessionData) return;
+                e.preventDefault();
+                setChartTooltip(null);
+                setChartPopup((prev) =>
+                  prev?.xPct === xPct ? null : { xPct, yPct, session: sessionData }
+                );
+              }}
             >
               {/* Larger invisible hit area */}
               <circle cx={toX(i)} cy={toY(v)} r="12" fill="transparent" />
@@ -572,30 +581,87 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
                       ref={chartContainerRef}
                       style={{ flex: 1, minHeight: 0, border: "0.5px solid #e5e5e5", borderRadius: 8, background: "#fafafa", overflow: "hidden", display: "flex", position: "relative" }}
                       onMouseLeave={() => setChartTooltip(null)}
+                      onClick={() => setChartPopup(null)}
                     >
                       <ChartSVG />
+                      {/* Hover tooltip — minimal */}
                       {chartTooltip && (
                         <div style={{
                           position: "absolute",
                           left: `${chartTooltip.xPct}%`,
                           top: `${chartTooltip.yPct}%`,
-                          transform: chartTooltip.yPct < 30
-                            ? "translate(-50%, 10px)"
-                            : "translate(-50%, calc(-100% - 10px))",
-                          background: "rgba(26,26,26,0.92)",
+                          transform: chartTooltip.yPct < 30 ? "translate(-50%, 10px)" : "translate(-50%, calc(-100% - 10px))",
+                          background: "rgba(26,26,26,0.88)",
                           color: "#fff",
-                          padding: "5px 9px",
-                          borderRadius: 6,
+                          padding: "3px 8px",
+                          borderRadius: 5,
                           fontSize: 10,
-                          lineHeight: "1.7",
-                          whiteSpace: "pre",
+                          whiteSpace: "nowrap",
                           pointerEvents: "none",
                           zIndex: 10,
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
                         }}>
-                          {chartTooltip.lines.map((l, i) => <div key={i}>{l}</div>)}
+                          {chartTooltip.label}
                         </div>
                       )}
+                      {/* Click popup — full detail */}
+                      {chartPopup && (() => {
+                        const s = chartPopup.session;
+                        const ci = s.checkIn;
+                        const popLeft = chartPopup.xPct > 70 ? "auto" : `${chartPopup.xPct}%`;
+                        const popRight = chartPopup.xPct > 70 ? `${100 - chartPopup.xPct}%` : "auto";
+                        const popTop = chartPopup.yPct < 50 ? `${chartPopup.yPct}%` : "auto";
+                        const popBottom = chartPopup.yPct >= 50 ? `${100 - chartPopup.yPct}%` : "auto";
+                        return (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              position: "absolute",
+                              left: popLeft, right: popRight,
+                              top: popTop, bottom: popBottom,
+                              marginTop: chartPopup.yPct < 50 ? 12 : 0,
+                              marginBottom: chartPopup.yPct >= 50 ? 12 : 0,
+                              background: "#1a1a1a",
+                              color: "#fff",
+                              borderRadius: 8,
+                              padding: "10px 12px",
+                              fontSize: 11,
+                              zIndex: 20,
+                              minWidth: 170,
+                              boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
+                              lineHeight: 1.6,
+                            }}
+                          >
+                            {/* Header */}
+                            <div style={{ fontWeight: 600, marginBottom: 6, color: "#fff", fontSize: 12 }}>
+                              {new Date(s.date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                            </div>
+                            {/* Sets */}
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 8px", marginBottom: 7 }}>
+                              {s.sets.map((set, i) => (
+                                <span key={i} style={{ fontFamily: "monospace", fontSize: 11, color: set.weight === s.maxWeight ? "#60a5fa" : "#ccc" }}>
+                                  {set.weight}×{set.reps}
+                                </span>
+                              ))}
+                            </div>
+                            {/* Divider */}
+                            <div style={{ borderTop: "0.5px solid #333", marginBottom: 6 }} />
+                            {/* Stats row */}
+                            <div style={{ display: "flex", gap: 12, marginBottom: ci ? 6 : 0, fontSize: 10, color: "#aaa" }}>
+                              <span>Vol <strong style={{ color: "#fff" }}>{s.totalVolume.toLocaleString()}kg</strong></span>
+                              <span>1RM <strong style={{ color: "#fff" }}>~{s.estimated1RM}kg</strong></span>
+                            </div>
+                            {/* Check-in */}
+                            {ci && (
+                              <div style={{ fontSize: 10, color: "#aaa", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <span>😴 {ci.sleep ?? "—"}</span>
+                                <span>🧠 {ci.mood ?? "—"}</span>
+                                <span>💧 {ci.hydration ?? "—"}</span>
+                                <span>⚡ {ci.stress ?? "—"}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 
