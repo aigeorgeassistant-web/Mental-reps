@@ -49,6 +49,7 @@ type SessionData = {
   estimated1RM: number;
   bestReps: number;
   setCount: number;
+  sets: { weight: number; reps: number }[];
   checkIn: { sleep: number | null; mood: number | null; hydration: number | null; stress: number | null } | null;
 };
 
@@ -131,6 +132,9 @@ function buildExerciseSummaries(loggedSets: LoggedSet[]): ExerciseSummary[] {
           estimated1RM,
           bestReps,
           setCount: ss.length,
+          sets: validSets
+            .sort((a, b) => (a.setIndex ?? 0) - (b.setIndex ?? 0))
+            .map((s) => ({ weight: s.weight ?? 0, reps: s.reps ?? 0 })),
           checkIn: ss[0].session?.checkIn ?? null,
         };
       });
@@ -357,8 +361,13 @@ export function PerformancePage({ clientId, clientName }: { clientId: string; cl
         {chartValues.map((v, i) => {
           const dot = chartDots[i];
           const ci = chartCheckIns[i];
+          const sessionSets = rangedSessions[i]?.sets ?? [];
+          const setsLine = sessionSets.length
+            ? sessionSets.map((s) => `${s.weight}×${s.reps}`).join("  ")
+            : null;
           const tooltipLines = [
             `${chartDates[i]}  ${v}${metricUnit}`,
+            setsLine,
             ci ? `😴 ${ci.sleep ?? "—"}  🧠 ${ci.mood ?? "—"}  💧 ${ci.hydration ?? "—"}  ⚡ ${ci.stress ?? "—"}` : null,
           ].filter(Boolean) as string[];
           const xPct = (toX(i) / W) * 100;
