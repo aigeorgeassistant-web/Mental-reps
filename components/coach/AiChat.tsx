@@ -69,15 +69,24 @@ function buildContext(data: any): string {
 
 export function AiChat() {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"chat" | "settings">("chat");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [clientContext, setClientContext] = useState<string | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
   const [warmedUp, setWarmedUp] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState<string>(SYSTEM_PROMPT);
+  const [promptDraft, setPromptDraft] = useState<string>(SYSTEM_PROMPT);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname();
+
+  // Load saved prompt from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("ai_system_prompt");
+    if (saved) { setCustomPrompt(saved); setPromptDraft(saved); }
+  }, []);
 
   // Wake up Ollama silently on mount
   useEffect(() => {
@@ -132,8 +141,8 @@ export function AiChat() {
     setLoading(true);
 
     const systemWithContext = clientContext
-      ? `${SYSTEM_PROMPT}\n\n--- CURRENT CLIENT DATA ---\n${clientContext}\n---`
-      : SYSTEM_PROMPT;
+      ? `${customPrompt}\n\n--- CURRENT CLIENT DATA ---\n${clientContext}\n---`
+      : customPrompt;
 
     try {
       const res = await fetch("/api/ai/chat", {
@@ -202,58 +211,88 @@ export function AiChat() {
           }}
         >
           {/* Header */}
-          <div
-            style={{
-              padding: "11px 14px",
-              borderBottom: "0.5px solid #2a2a2a",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              flexShrink: 0,
-            }}
-          >
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>AI Coach</span>
-            {clientName ? (
-              <span
-                style={{
-                  fontSize: 10,
-                  color: "#60a5fa",
-                  background: "rgba(37,99,235,0.15)",
-                  padding: "2px 7px",
-                  borderRadius: 4,
-                  border: "0.5px solid rgba(96,165,250,0.3)",
-                }}
-              >
-                {clientName}
-              </span>
+          <div style={{ padding: "11px 14px", borderBottom: "0.5px solid #2a2a2a", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            {view === "settings" ? (
+              <>
+                <button onClick={() => { setView("chat"); setPromptDraft(customPrompt); }} style={{ fontSize: 11, color: "#888", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0 }}>← back</button>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#fff", marginLeft: 4 }}>System Prompt</span>
+                <button
+                  onClick={() => { setCustomPrompt(SYSTEM_PROMPT); setPromptDraft(SYSTEM_PROMPT); localStorage.removeItem("ai_system_prompt"); }}
+                  style={{ marginLeft: "auto", fontSize: 10, color: "#555", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}
+                >reset</button>
+              </>
             ) : (
-              <span style={{ fontSize: 10, color: "#555" }}>general mode</span>
-            )}
-            {!warmedUp && (
-              <span style={{ fontSize: 10, color: "#555", marginLeft: "auto" }}>
-                warming up...
-              </span>
-            )}
-            {messages.length > 0 && (
-              <button
-                onClick={() => setMessages([])}
-                style={{
-                  marginLeft: "auto",
-                  fontSize: 10,
-                  color: "#555",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
-              >
-                clear
-              </button>
+              <>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>AI Coach</span>
+                {clientName ? (
+                  <span style={{ fontSize: 10, color: "#60a5fa", background: "rgba(37,99,235,0.15)", padding: "2px 7px", borderRadius: 4, border: "0.5px solid rgba(96,165,250,0.3)" }}>{clientName}</span>
+                ) : (
+                  <span style={{ fontSize: 10, color: "#555" }}>general mode</span>
+                )}
+                {!warmedUp && <span style={{ fontSize: 10, color: "#555", marginLeft: "auto" }}>warming up...</span>}
+                <div style={{ marginLeft: warmedUp ? "auto" : 0, display: "flex", gap: 8 }}>
+                  {messages.length > 0 && (
+                    <button onClick={() => setMessages([])} style={{ fontSize: 10, color: "#555", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>clear</button>
+                  )}
+                  <button
+                    onClick={() => { setView("settings"); setPromptDraft(customPrompt); }}
+                    title="Edit system prompt"
+                    style={{ fontSize: 14, color: customPrompt !== SYSTEM_PROMPT ? "#60a5fa" : "#555", background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}
+                  >⚙</button>
+                </div>
+              </>
             )}
           </div>
 
-          {/* Messages */}
-          <div
+          {/* Settings view */}
+          {view === "settings" && (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: 12, gap: 10, overflow: "hidden" }}>
+              <div style={{ fontSize: 10, color: "#555", lineHeight: 1.5 }}>
+                This is what Qwen reads before every message. Edit to change how it thinks, responds, and what it prioritises. Blue ⚙ = custom prompt active.
+              </div>
+              <textarea
+                value={promptDraft}
+                onChange={(e) => setPromptDraft(e.target.value)}
+                style={{
+                  flex: 1,
+                  background: "#252525",
+                  border: "0.5px solid #444",
+                  borderRadius: 8,
+                  color: "#ddd",
+                  padding: "10px",
+                  fontSize: 11,
+                  lineHeight: 1.6,
+                  fontFamily: "monospace",
+                  resize: "none",
+                  outline: "none",
+                }}
+              />
+              <button
+                onClick={() => {
+                  setCustomPrompt(promptDraft);
+                  localStorage.setItem("ai_system_prompt", promptDraft);
+                  setView("chat");
+                }}
+                style={{
+                  background: "#2563eb",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "9px",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontWeight: 500,
+                  flexShrink: 0,
+                }}
+              >
+                Save &amp; apply
+              </button>
+            </div>
+          )}
+
+          {/* Chat view */}
+          {view === "chat" && (<>
             style={{
               flex: 1,
               overflowY: "auto",
@@ -359,6 +398,7 @@ export function AiChat() {
               ↑
             </button>
           </div>
+          </>)}
         </div>
       )}
     </>
