@@ -5,16 +5,17 @@ import { usePathname } from "next/navigation";
 
 type Message = { role: "user" | "assistant"; content: string };
 
-const SYSTEM_PROMPT = `You are an AI coaching assistant for Mental Reps, a strength coaching platform.
+const DEFAULT_PROMPT = `You are an AI coaching assistant for Mental Reps, a strength coaching platform.
 You assist coaches with client analysis, program design, and training questions.
 
-Your personality:
-- Direct and concise, like an experienced strength and conditioning coach
-- Reference specific numbers when client data is available
-- Never say "data suggests" — say what you see
-- Give one concrete actionable recommendation when asked
-- You understand progressive overload, periodization, RPE, volume landmarks, and body composition
-- When check-in scores are low (sleep <3, stress >3), factor that into your recommendations
+Rules:
+- Be direct and concise. Max 3-4 sentences per answer unless a detailed breakdown is explicitly asked.
+- Always reference specific numbers when client data is available.
+- Never say "data suggests" — say what you see.
+- Give one concrete actionable recommendation when asked.
+- You understand progressive overload, periodization, RPE, volume landmarks, and body composition.
+- When check-in scores are low (sleep <3, stress >3), factor that into your recommendations.
+- Do not repeat information already stated. Do not pad with encouragement or generic advice.
 
 When client data is provided below, use it to give specific answers about that client.
 When no client is open, act as a general strength and conditioning assistant.`;
@@ -76,8 +77,8 @@ export function AiChat() {
   const [clientContext, setClientContext] = useState<string | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
   const [warmedUp, setWarmedUp] = useState(false);
-  const [customPrompt, setCustomPrompt] = useState<string>(SYSTEM_PROMPT);
-  const [promptDraft, setPromptDraft] = useState<string>(SYSTEM_PROMPT);
+  const [customPrompt, setCustomPrompt] = useState<string>(DEFAULT_PROMPT);
+  const [promptDraft, setPromptDraft] = useState<string>(DEFAULT_PROMPT);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname();
@@ -102,7 +103,7 @@ export function AiChat() {
       .catch(() => {});
   }, []);
 
-  // Load client context when URL changes to a client page
+  // Load client context when URL changes
   useEffect(() => {
     const match = pathname.match(/\/coach\/clients\/([^/]+)/);
     if (!match || match[1] === "new") {
@@ -121,15 +122,15 @@ export function AiChat() {
       .catch(() => {});
   }, [pathname]);
 
-  // Scroll to bottom on new message
+  // Scroll to bottom
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // Focus input when panel opens
+  // Focus input when chat opens
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 50);
-  }, [open]);
+    if (open && view === "chat") setTimeout(() => inputRef.current?.focus(), 50);
+  }, [open, view]);
 
   async function send() {
     const text = input.trim();
@@ -160,6 +161,8 @@ export function AiChat() {
     }
   }
 
+  const isCustom = customPrompt !== DEFAULT_PROMPT;
+
   return (
     <>
       {/* Floating button */}
@@ -167,24 +170,15 @@ export function AiChat() {
         onClick={() => setOpen((o) => !o)}
         title={warmedUp ? "AI Coach — ready" : "AI Coach — warming up..."}
         style={{
-          position: "fixed",
-          bottom: 24,
-          right: 24,
-          width: 48,
-          height: 48,
-          borderRadius: "50%",
+          position: "fixed", bottom: 24, right: 24,
+          width: 48, height: 48, borderRadius: "50%",
           background: open ? "#111" : warmedUp ? "#1a1a1a" : "#555",
           color: "#fff",
           border: open ? "1.5px solid #444" : "none",
-          cursor: "pointer",
-          fontSize: 20,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          cursor: "pointer", fontSize: 20,
+          display: "flex", alignItems: "center", justifyContent: "center",
           boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
-          zIndex: 1000,
-          transition: "background 0.3s",
-          lineHeight: 1,
+          zIndex: 1000, transition: "background 0.3s", lineHeight: 1,
         }}
       >
         {open ? "✕" : "⚡"}
@@ -192,53 +186,54 @@ export function AiChat() {
 
       {/* Chat panel */}
       {open && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 84,
-            right: 24,
-            width: 360,
-            height: 500,
-            background: "#1a1a1a",
-            borderRadius: 12,
-            display: "flex",
-            flexDirection: "column",
-            zIndex: 999,
-            boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
-            overflow: "hidden",
-            fontFamily: "var(--font-sans, system-ui)",
-            fontSize: 13,
-          }}
-        >
+        <div style={{
+          position: "fixed", bottom: 84, right: 24,
+          width: 360, height: 500,
+          background: "#1a1a1a", borderRadius: 12,
+          display: "flex", flexDirection: "column",
+          zIndex: 999, boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+          overflow: "hidden", fontFamily: "var(--font-sans, system-ui)", fontSize: 13,
+        }}>
+
           {/* Header */}
           <div style={{ padding: "11px 14px", borderBottom: "0.5px solid #2a2a2a", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             {view === "settings" ? (
               <>
-                <button onClick={() => { setView("chat"); setPromptDraft(customPrompt); }} style={{ fontSize: 11, color: "#888", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0 }}>← back</button>
+                <button onClick={() => { setView("chat"); setPromptDraft(customPrompt); }}
+                  style={{ fontSize: 11, color: "#888", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0 }}>
+                  ← back
+                </button>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#fff", marginLeft: 4 }}>System Prompt</span>
                 <button
-                  onClick={() => { setCustomPrompt(SYSTEM_PROMPT); setPromptDraft(SYSTEM_PROMPT); localStorage.removeItem("ai_system_prompt"); }}
-                  style={{ marginLeft: "auto", fontSize: 10, color: "#555", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}
-                >reset</button>
+                  onClick={() => { setCustomPrompt(DEFAULT_PROMPT); setPromptDraft(DEFAULT_PROMPT); localStorage.removeItem("ai_system_prompt"); }}
+                  style={{ marginLeft: "auto", fontSize: 10, color: "#555", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                  reset to default
+                </button>
               </>
             ) : (
               <>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>AI Coach</span>
                 {clientName ? (
-                  <span style={{ fontSize: 10, color: "#60a5fa", background: "rgba(37,99,235,0.15)", padding: "2px 7px", borderRadius: 4, border: "0.5px solid rgba(96,165,250,0.3)" }}>{clientName}</span>
+                  <span style={{ fontSize: 10, color: "#60a5fa", background: "rgba(37,99,235,0.15)", padding: "2px 7px", borderRadius: 4, border: "0.5px solid rgba(96,165,250,0.3)" }}>
+                    {clientName}
+                  </span>
                 ) : (
                   <span style={{ fontSize: 10, color: "#555" }}>general mode</span>
                 )}
-                {!warmedUp && <span style={{ fontSize: 10, color: "#555", marginLeft: "auto" }}>warming up...</span>}
-                <div style={{ marginLeft: warmedUp ? "auto" : 0, display: "flex", gap: 8 }}>
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                  {!warmedUp && <span style={{ fontSize: 10, color: "#555" }}>warming up...</span>}
                   {messages.length > 0 && (
-                    <button onClick={() => setMessages([])} style={{ fontSize: 10, color: "#555", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>clear</button>
+                    <button onClick={() => setMessages([])}
+                      style={{ fontSize: 10, color: "#555", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                      clear
+                    </button>
                   )}
                   <button
                     onClick={() => { setView("settings"); setPromptDraft(customPrompt); }}
-                    title="Edit system prompt"
-                    style={{ fontSize: 14, color: customPrompt !== SYSTEM_PROMPT ? "#60a5fa" : "#555", background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}
-                  >⚙</button>
+                    title={isCustom ? "Custom prompt active" : "Edit system prompt"}
+                    style={{ fontSize: 15, color: isCustom ? "#60a5fa" : "#555", background: "none", border: "none", cursor: "pointer", lineHeight: 1, padding: 0 }}>
+                    ⚙
+                  </button>
                 </div>
               </>
             )}
@@ -248,157 +243,86 @@ export function AiChat() {
           {view === "settings" && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: 12, gap: 10, overflow: "hidden" }}>
               <div style={{ fontSize: 10, color: "#555", lineHeight: 1.5 }}>
-                This is what Qwen reads before every message. Edit to change how it thinks, responds, and what it prioritises. Blue ⚙ = custom prompt active.
+                Qwen reads this before every message. Edit freely — blue ⚙ means a custom prompt is active.
               </div>
               <textarea
                 value={promptDraft}
                 onChange={(e) => setPromptDraft(e.target.value)}
                 style={{
-                  flex: 1,
-                  background: "#252525",
-                  border: "0.5px solid #444",
-                  borderRadius: 8,
-                  color: "#ddd",
-                  padding: "10px",
-                  fontSize: 11,
-                  lineHeight: 1.6,
-                  fontFamily: "monospace",
-                  resize: "none",
-                  outline: "none",
+                  flex: 1, background: "#252525", border: "0.5px solid #444",
+                  borderRadius: 8, color: "#ddd", padding: "10px",
+                  fontSize: 11, lineHeight: 1.6, fontFamily: "monospace",
+                  resize: "none", outline: "none",
                 }}
               />
               <button
-                onClick={() => {
-                  setCustomPrompt(promptDraft);
-                  localStorage.setItem("ai_system_prompt", promptDraft);
-                  setView("chat");
-                }}
+                onClick={() => { setCustomPrompt(promptDraft); localStorage.setItem("ai_system_prompt", promptDraft); setView("chat"); }}
                 style={{
-                  background: "#2563eb",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 8,
-                  padding: "9px",
-                  fontSize: 12,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  fontWeight: 500,
-                  flexShrink: 0,
-                }}
-              >
+                  background: "#2563eb", color: "#fff", border: "none",
+                  borderRadius: 8, padding: "9px", fontSize: 12,
+                  cursor: "pointer", fontFamily: "inherit", fontWeight: 500, flexShrink: 0,
+                }}>
                 Save &amp; apply
               </button>
             </div>
           )}
 
           {/* Chat view */}
-          {view === "chat" && (<>
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: "12px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-            }}
-          >
-            {messages.length === 0 && (
-              <div
-                style={{
-                  color: "#444",
-                  fontSize: 12,
-                  textAlign: "center",
-                  marginTop: 60,
-                  lineHeight: 1.6,
-                }}
-              >
-                {clientName
-                  ? `Context loaded for ${clientName}.\nAsk anything about their training.`
-                  : "Open a client for their data,\nor ask anything about training."}
+          {view === "chat" && (
+            <>
+              <div style={{ flex: 1, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                {messages.length === 0 && (
+                  <div style={{ color: "#444", fontSize: 12, textAlign: "center", marginTop: 60, lineHeight: 1.6 }}>
+                    {clientName
+                      ? `Context loaded for ${clientName}.\nAsk anything about their training.`
+                      : "Open a client for their data,\nor ask anything about training."}
+                  </div>
+                )}
+                {messages.map((m, i) => (
+                  <div key={i} style={{
+                    alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+                    maxWidth: "88%",
+                    background: m.role === "user" ? "#2563eb" : "#252525",
+                    color: "#fff",
+                    borderRadius: m.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
+                    padding: "8px 11px", fontSize: 12, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                  }}>
+                    {m.content}
+                  </div>
+                ))}
+                {loading && (
+                  <div style={{ alignSelf: "flex-start", color: "#555", fontSize: 12, padding: "4px 0" }}>thinking...</div>
+                )}
+                <div ref={bottomRef} />
               </div>
-            )}
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                style={{
-                  alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-                  maxWidth: "88%",
-                  background: m.role === "user" ? "#2563eb" : "#252525",
-                  color: "#fff",
-                  borderRadius:
-                    m.role === "user"
-                      ? "12px 12px 2px 12px"
-                      : "12px 12px 12px 2px",
-                  padding: "8px 11px",
-                  fontSize: 12,
-                  lineHeight: 1.55,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
-                {m.content}
+              <div style={{ borderTop: "0.5px solid #2a2a2a", padding: "10px 12px", display: "flex", gap: 8, flexShrink: 0 }}>
+                <input
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+                  placeholder="Ask anything..."
+                  style={{
+                    flex: 1, background: "#252525", border: "0.5px solid #333",
+                    borderRadius: 8, color: "#fff", padding: "7px 10px",
+                    fontSize: 12, outline: "none", fontFamily: "inherit",
+                  }}
+                />
+                <button
+                  onClick={send}
+                  disabled={loading || !input.trim()}
+                  style={{
+                    background: loading || !input.trim() ? "#2a2a2a" : "#2563eb",
+                    color: loading || !input.trim() ? "#555" : "#fff",
+                    border: "none", borderRadius: 8, padding: "7px 13px",
+                    fontSize: 14, cursor: loading || !input.trim() ? "default" : "pointer",
+                    fontFamily: "inherit", transition: "background 0.15s",
+                  }}>
+                  ↑
+                </button>
               </div>
-            ))}
-            {loading && (
-              <div style={{ alignSelf: "flex-start", color: "#555", fontSize: 12, padding: "4px 0" }}>
-                thinking...
-              </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
-
-          {/* Input */}
-          <div
-            style={{
-              borderTop: "0.5px solid #2a2a2a",
-              padding: "10px 12px",
-              display: "flex",
-              gap: 8,
-              flexShrink: 0,
-            }}
-          >
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  send();
-                }
-              }}
-              placeholder="Ask anything..."
-              style={{
-                flex: 1,
-                background: "#252525",
-                border: "0.5px solid #333",
-                borderRadius: 8,
-                color: "#fff",
-                padding: "7px 10px",
-                fontSize: 12,
-                outline: "none",
-                fontFamily: "inherit",
-              }}
-            />
-            <button
-              onClick={send}
-              disabled={loading || !input.trim()}
-              style={{
-                background: loading || !input.trim() ? "#2a2a2a" : "#2563eb",
-                color: loading || !input.trim() ? "#555" : "#fff",
-                border: "none",
-                borderRadius: 8,
-                padding: "7px 13px",
-                fontSize: 14,
-                cursor: loading || !input.trim() ? "default" : "pointer",
-                fontFamily: "inherit",
-                transition: "background 0.15s",
-              }}
-            >
-              ↑
-            </button>
-          </div>
-          </>)}
+            </>
+          )}
         </div>
       )}
     </>
