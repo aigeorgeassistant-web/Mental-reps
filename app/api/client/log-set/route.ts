@@ -40,10 +40,14 @@ export async function POST(req: Request) {
       where: {
         clientId: client.id,
         exerciseId,
-        // exclude the row we're about to overwrite so we compare against true history
-        NOT: sessionExerciseId
-          ? { sessionExerciseId_setIndex: { sessionExerciseId, setIndex } }
-          : undefined,
+        ...(sessionExerciseId != null ? {
+          NOT: {
+            AND: [
+              { sessionExerciseId },
+              { setIndex },
+            ],
+          },
+        } : {}),
       },
       select: { weight: true, reps: true },
     });
