@@ -37,38 +37,41 @@ export async function GET(
         sessionId: true,
         notes: true,
         isPr: true,
+        session: { select: { date: true } },
       },
     }),
   ]);
 
   const lowerIsBetter = exercise?.lowerIsBetter ?? false;
 
-  // Find the best-ever set for the PR badge
+  const mappedSets = sets.map((s) => ({
+    ...s,
+    displayDate: (s.session?.date ?? s.date).toISOString().slice(0, 10),
+    session: undefined, // don't leak full session object
+  }));
+
+  // Find the best-ever set for the PR badge (use displayDate for output)
   let bestSet: { weight: number; reps: number; date: string } | null = null;
-  if (sets.length > 0) {
+  if (mappedSets.length > 0) {
     if (lowerIsBetter) {
-      const best = sets
+      const best = mappedSets
         .filter((s) => s.weight != null)
         .reduce((a, b) => ((a.weight ?? Infinity) <= (b.weight ?? Infinity) ? a : b));
       if (best.weight != null) {
-        bestSet = { weight: best.weight, reps: best.reps ?? 0, date: best.date.toISOString().slice(0, 10) };
+        bestSet = { weight: best.weight, reps: best.reps ?? 0, date: best.displayDate };
       }
     } else {
-      const best = sets
-        .filter((s) => s.weight != null && s.reps != null)
-        .reduce(
-          (a, b) => {
-            const ea = epley(a.weight ?? 0, a.reps ?? 0);
-            const eb = epley(b.weight ?? 0, b.reps ?? 0);
-            return ea >= eb ? a : b;
-          },
-          sets.filter((s) => s.weight != null && s.reps != null)[0] ?? sets[0]
+      const withBoth = mappedSets.filter((s) => s.weight != null && s.reps != null);
+      if (withBoth.length > 0) {
+        const best = withBoth.reduce((a, b) =>
+          epley(a.weight!, a.reps!) >= epley(b.weight!, b.reps!) ? a : b
         );
-      if (best?.weight != null) {
-        bestSet = { weight: best.weight, reps: best.reps ?? 0, date: best.date.toISOString().slice(0, 10) };
+        if (best.weight != null) {
+          bestSet = { weight: best.weight, reps: best.reps ?? 0, date: best.displayDate };
+        }
       }
     }
   }
 
-  return NextResponse.json({ sets, bestSet, lowerIsBetter });
+  return NextResponse.json({ sets: mappedSets, bestSet, lowerIsBetter });
 }
