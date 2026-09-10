@@ -27,8 +27,11 @@ export async function GET(
       distance: true,
       setIndex: true,
       sessionId: true,
+      notes: true,
+      isPr: true,
     },
   });
 
   return NextResponse.json(sets);
 }
+
