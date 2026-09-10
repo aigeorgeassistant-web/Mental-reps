@@ -227,7 +227,7 @@ function HistoryPanel({ exerciseId, exercise }: { exerciseId: string | null; exe
     setLoading(true);
     fetch(`/api/client/exercises/${exerciseId}/history`)
       .then((r) => r.json())
-      .then((data) => { setSets(data); setLoading(false); })
+      .then((data) => { setSets(Array.isArray(data) ? data : (data.sets ?? [])); setLoading(false); })
       .catch(() => setLoading(false));
   }, [exerciseId]);
 
@@ -673,3 +673,4 @@ export function ClientDashboard({ clientName }: { clientName: string }) {
     </>
   );
 }
+
