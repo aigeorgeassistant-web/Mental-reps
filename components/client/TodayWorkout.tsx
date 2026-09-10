@@ -61,12 +61,14 @@ function formatTarget(row: Row): string {
   return parts.join("  ") || "";
 }
 
-function ytLink(url: string): string | null {
+function ytVideoId(url: string): string | null {
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|v\/))([a-zA-Z0-9_-]{11})/);
-  if (m) return `https://youtube.com/watch?v=${m[1]}`;
-  // fallback: if it looks like a youtube URL at all, pass it through
-  if (/youtu(\.be|be\.com)/i.test(url)) return url;
-  return null;
+  return m ? m[1] : null;
+}
+
+function ytEmbedUrl(url: string): string | null {
+  const id = ytVideoId(url);
+  return id ? `https://www.youtube.com/embed/${id}?playsinline=1` : null;
 }
 
 function fmtTime(sec: number): string {
@@ -94,6 +96,28 @@ function GifOverlay({ url, name, onClose }: { url: string; name: string; onClose
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <img src={url} alt={name} style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain" }} />
       <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,.15)", border: "none", color: "#fff", fontSize: 22, width: 40, height: 40, borderRadius: 20, cursor: "pointer" }}>✕</button>
+    </div>
+  );
+}
+
+// ─── YouTube embed overlay ────────────────────────────────────────────────────
+
+function YouTubeOverlay({ url, onClose }: { url: string; onClose: () => void }) {
+  const embedUrl = ytEmbedUrl(url);
+  if (!embedUrl) return null;
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1002, background: "rgba(0,0,0,.95)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, position: "relative" }}>
+        <button onClick={onClose} style={{ position: "absolute", top: -44, right: 0, background: "rgba(255,255,255,.15)", border: "none", color: "#fff", fontSize: 20, width: 36, height: 36, borderRadius: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        <div style={{ position: "relative", paddingBottom: "56.25%", borderRadius: 12, overflow: "hidden", background: "#000" }}>
+          <iframe
+            src={embedUrl}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -436,17 +460,21 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   const [unit, setUnit] = useState<Units>(row.loadUnit ?? defaultUnit);
   const [picker, setPicker] = useState<{ setIdx: number; field: "weight" | "reps" } | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
+  const [ytOpen, setYtOpen] = useState(false);
   const [copyPrompt, setCopyPrompt] = useState<{ field: "weight" | "reps"; value: number; fromIdx: number } | null>(null);
-  const [hasPr, setHasPr] = useState(false);
+  // prBestSet: the best-ever set for this exercise (null = no history yet)
+  // newPr: true if a new PR was logged this session
+  const [prBestSet, setPrBestSet] = useState<{ weight: number; reps: number; date: string } | null | "loading">("loading");
+  const [newPr, setNewPr] = useState(false);
+  const [prPopupOpen, setPrPopupOpen] = useState(false);
 
-  // Pre-populate sets from previously logged data for this session; also detect any historic PR
+  // Pre-populate sets from previously logged data for this session; also load PR baseline
   useEffect(() => {
     fetch(`/api/client/exercises/${row.exerciseId}/history`)
       .then((r) => r.json())
-      .then((history: { sessionId: string | null; setIndex: number; weight: number | null; reps: number | null; notes: string | null; isPr?: boolean }[]) => {
-        // Check for any all-time PR in history (any session)
-        if (history.some((h) => h.isPr)) setHasPr(true);
-        const sessionSets = history.filter((h) => h.sessionId === sessionId);
+      .then((data: { sets: { sessionId: string | null; setIndex: number; weight: number | null; reps: number | null; notes: string | null; isPr?: boolean }[]; bestSet: { weight: number; reps: number; date: string } | null; lowerIsBetter: boolean }) => {
+        setPrBestSet(data.bestSet ?? null);
+        const sessionSets = data.sets.filter((h) => h.sessionId === sessionId);
         if (sessionSets.length === 0) return;
         setSets((prev) => prev.map((ss, i) => {
           const logged = sessionSets.find((h) => h.setIndex === i);
@@ -454,7 +482,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
           return { ...ss, weight: logged.weight ?? ss.weight, reps: logged.reps ?? ss.reps, done: true, note: logged.notes ?? "" };
         }));
       })
-      .catch(() => {});
+      .catch(() => setPrBestSet(null));
   }, [row.id, sessionId]);
 
   const doneSets = sets.filter((s) => s.done).length;
@@ -464,7 +492,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
     if (allDone && !prevAllDone.current) { prevAllDone.current = true; onAllDone?.(); }
   }, [allDone]);
   const target = formatTarget(row);
-  const ytUrl = row.exercise.youtubeUrl ? ytLink(row.exercise.youtubeUrl) : null;
+  const ytUrl = row.exercise.youtubeUrl ?? null;
 
   async function doLog(idx: number, newSets: SetState[]) {
     const s = newSets[idx];
@@ -484,7 +512,12 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
         }),
       });
       const data = await res.json();
-      if (data.isPr) setHasPr(true);
+      if (data.isPr) {
+        setNewPr(true);
+        // Update displayed best set to this new PR
+        const s = newSets[idx];
+        if (s.weight && s.reps) setPrBestSet({ weight: s.weight, reps: s.reps, date: new Date().toISOString().slice(0, 10) });
+      }
       setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: true, isPr: data.isPr } : ss));
       onSetDone?.();
     } catch {
@@ -524,6 +557,20 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   return (
     <>
       {gifOpen && row.exercise.gifUrl && <GifOverlay url={row.exercise.gifUrl} name={row.exercise.name} onClose={() => setGifOpen(false)} />}
+      {ytOpen && ytUrl && <YouTubeOverlay url={ytUrl} onClose={() => setYtOpen(false)} />}
+      {prPopupOpen && prBestSet && prBestSet !== "loading" && (
+        <div onClick={() => setPrPopupOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1003, background: "rgba(0,0,0,.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 16, padding: "24px 28px", textAlign: "center", minWidth: 200 }}>
+            <div style={{ fontSize: 12, color: "var(--dim)", marginBottom: 8 }}>Personal Record</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>{row.exercise.name}</div>
+            <div style={{ fontSize: 32, fontWeight: 900, fontFamily: "monospace", color: newPr ? "#c99b2e" : "var(--text)", marginBottom: 6 }}>
+              {prBestSet.weight % 1 === 0 ? prBestSet.weight : prBestSet.weight.toFixed(1)}kg × {prBestSet.reps}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--dim)" }}>{prBestSet.date}</div>
+            {newPr && <div style={{ marginTop: 10, fontSize: 11, fontWeight: 700, color: "#c99b2e", letterSpacing: ".08em", textTransform: "uppercase" }}>New PR this session! 🏆</div>}
+          </div>
+        </div>
+      )}
       {picker && (
         <DrumPicker
           label={picker.field === "weight" ? `Weight (${unit.toLowerCase()})` : "Reps"}
@@ -561,7 +608,15 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
             <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: allDone ? "var(--dim)" : "var(--text)" }}>{row.exercise.name}</div>
             {target && <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "monospace", marginTop: 1 }}>{target}</div>}
           </div>
-          {hasPr && <div style={{ fontSize: 11, color: "#c99b2e", flexShrink: 0 }} title="Personal Record">🏆</div>}
+          {prBestSet !== "loading" && (
+            <button
+              onClick={(e) => { e.stopPropagation(); if (prBestSet) setPrPopupOpen(true); }}
+              title={prBestSet ? `PR: ${prBestSet.weight}kg × ${prBestSet.reps}` : "No PR yet"}
+              style={{ background: "none", border: "none", padding: "0 2px", cursor: prBestSet ? "pointer" : "default", fontSize: 14, color: newPr ? "#c99b2e" : "var(--dim)", flexShrink: 0, lineHeight: 1 }}
+            >
+              {newPr ? "🏆" : prBestSet ? <span>🏆 <span style={{ fontSize: 10, fontFamily: "monospace", color: "var(--dim)" }}>{prBestSet.weight % 1 === 0 ? prBestSet.weight : prBestSet.weight.toFixed(1)}×{prBestSet.reps}</span></span> : <span style={{ opacity: 0.35 }}>🏆</span>}
+            </button>
+          )}
           <div style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 700, color: allDone ? "#0c1a10" : doneSets > 0 ? "var(--text)" : "var(--dim)", border: `1px solid ${allDone ? "var(--good)" : doneSets > 0 ? "var(--steel)" : "var(--line)"}`, background: allDone ? "var(--good)" : "transparent", padding: "3px 7px", borderRadius: 5, flexShrink: 0, transition: "all .2s" }}>
             {doneSets}/{numSets}
           </div>
@@ -570,8 +625,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
 
         {open && (
           <div style={{ borderTop: "1px solid var(--line)", padding: "10px 14px" }}>
-            {sets.some((s) => s.isPr) && <div style={{ fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--accent)", fontWeight: 700, border: "1px solid var(--accent-dim)", padding: "2px 6px", borderRadius: 4, display: "inline-block", marginBottom: 6 }}>PR 🏆</div>}
-            {ytUrl && <a href={ytUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#fff", fontWeight: 700, textDecoration: "none", background: "var(--blue)", padding: "6px 10px", borderRadius: 8, marginBottom: 8 }}>▶ Watch demo</a>}
+            {ytUrl && <button onClick={() => setYtOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#fff", fontWeight: 700, background: "var(--blue)", border: "none", padding: "6px 10px", borderRadius: 8, marginBottom: 8, cursor: "pointer", fontFamily: "inherit" }}>▶ Watch demo</button>}
             {row.coachNote && <div style={{ fontSize: 12, color: "var(--dim)", background: "rgba(255,255,255,.04)", borderRadius: 8, padding: "7px 10px", marginBottom: 10 }}>📋 {row.coachNote}</div>}
             <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
               {(["KG", "LB"] as Units[]).map((u) => (
@@ -599,11 +653,13 @@ function TimedExerciseRow({ row, isFirst, onStartTimer, defaultOpen = true }: {
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [gifOpen, setGifOpen] = useState(false);
+  const [ytOpen, setYtOpen] = useState(false);
   const target = formatTarget(row);
-  const ytUrl = row.exercise.youtubeUrl ? ytLink(row.exercise.youtubeUrl) : null;
+  const ytUrl = row.exercise.youtubeUrl ?? null;
   return (
     <>
       {gifOpen && row.exercise.gifUrl && <GifOverlay url={row.exercise.gifUrl} name={row.exercise.name} onClose={() => setGifOpen(false)} />}
+      {ytOpen && ytUrl && <YouTubeOverlay url={ytUrl} onClose={() => setYtOpen(false)} />}
       <div style={{ background: "rgba(255,255,255,.03)", border: "1px solid var(--line)", borderRadius: 10, marginBottom: 6, overflow: "hidden" }}>
         <div onClick={() => setOpen((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer", userSelect: "none" }}>
           <div onClick={(e) => { if (row.exercise.gifUrl) { e.stopPropagation(); setGifOpen(true); } }}
@@ -618,7 +674,7 @@ function TimedExerciseRow({ row, isFirst, onStartTimer, defaultOpen = true }: {
         </div>
         {open && (
           <div style={{ borderTop: "1px solid var(--line)", padding: "10px 14px" }}>
-            {ytUrl && <a href={ytUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#fff", fontWeight: 700, textDecoration: "none", background: "var(--blue)", padding: "6px 10px", borderRadius: 8, marginBottom: 8 }}>▶ Watch demo</a>}
+            {ytUrl && <button onClick={() => setYtOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#fff", fontWeight: 700, background: "var(--blue)", border: "none", padding: "6px 10px", borderRadius: 8, marginBottom: 8, cursor: "pointer", fontFamily: "inherit" }}>▶ Watch demo</button>}
             {row.coachNote && <div style={{ fontSize: 12, color: "var(--dim)", background: "rgba(255,255,255,.04)", borderRadius: 8, padding: "7px 10px", marginBottom: 8 }}>📋 {row.coachNote}</div>}
             {row.exercise.cues && <div style={{ fontSize: 12, color: "var(--dim)", marginBottom: 8, lineHeight: 1.5 }}>{row.exercise.cues}</div>}
             {isFirst && onStartTimer && (
@@ -929,4 +985,5 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
     </div>
   );
 }
+
 
