@@ -62,8 +62,11 @@ function formatTarget(row: Row): string {
 }
 
 function ytLink(url: string): string | null {
-  const m = url.match(/(?:youtu\.be\/|youtube\.com\/watch\?v=|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-  return m ? `https://youtube.com/watch?v=${m[1]}` : null;
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|v\/))([a-zA-Z0-9_-]{11})/);
+  if (m) return `https://youtube.com/watch?v=${m[1]}`;
+  // fallback: if it looks like a youtube URL at all, pass it through
+  if (/youtu(\.be|be\.com)/i.test(url)) return url;
+  return null;
 }
 
 function fmtTime(sec: number): string {
@@ -145,8 +148,8 @@ function DrumPicker({ values, initial, onConfirm, onClose, label }: {
             <button onClick={submitManual} style={{ padding: "12px 20px", borderRadius: 10, border: "none", background: "var(--good)", color: "#0c1a10", fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>✓</button>
           </div>
         )}
-        <button onClick={() => setManual((v) => !v)} style={{ display: "block", margin: "12px auto 0", background: "none", border: "none", color: "var(--dim)", fontSize: 13, cursor: "pointer", textDecoration: "underline", fontFamily: "inherit" }}>
-          {manual ? "Back to scroll" : "Manual entry"}
+        <button onClick={() => setManual((v) => !v)} style={{ display: "block", margin: "12px auto 0", background: "var(--bg)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "9px 24px", borderRadius: 10, width: "100%" }}>
+          {manual ? "← Back to scroll" : "Type a number"}
         </button>
       </div>
     </div>
@@ -420,8 +423,8 @@ function SetRow({ s, i, row, sessionId, unit, onPicker, onChange }: {
 
 // ─── Exercise card (straight sets) ───────────────────────────────────────────
 
-function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDone }: {
-  row: Row; sessionId: string; defaultUnit: Units; defaultOpen?: boolean; onAllDone?: () => void;
+function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDone, onSetDone }: {
+  row: Row; sessionId: string; defaultUnit: Units; defaultOpen?: boolean; onAllDone?: () => void; onSetDone?: () => void;
 }) {
   const numSets = row.sets || 1;
   const defaultReps = row.reps ?? 10;
@@ -434,12 +437,15 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   const [picker, setPicker] = useState<{ setIdx: number; field: "weight" | "reps" } | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
   const [copyPrompt, setCopyPrompt] = useState<{ field: "weight" | "reps"; value: number; fromIdx: number } | null>(null);
+  const [hasPr, setHasPr] = useState(false);
 
-  // Pre-populate sets from previously logged data for this session
+  // Pre-populate sets from previously logged data for this session; also detect any historic PR
   useEffect(() => {
     fetch(`/api/client/exercises/${row.exerciseId}/history`)
       .then((r) => r.json())
-      .then((history: { sessionId: string | null; setIndex: number; weight: number | null; reps: number | null; notes: string | null }[]) => {
+      .then((history: { sessionId: string | null; setIndex: number; weight: number | null; reps: number | null; notes: string | null; isPr?: boolean }[]) => {
+        // Check for any all-time PR in history (any session)
+        if (history.some((h) => h.isPr)) setHasPr(true);
         const sessionSets = history.filter((h) => h.sessionId === sessionId);
         if (sessionSets.length === 0) return;
         setSets((prev) => prev.map((ss, i) => {
@@ -478,9 +484,12 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
         }),
       });
       const data = await res.json();
+      if (data.isPr) setHasPr(true);
       setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: true, isPr: data.isPr } : ss));
+      onSetDone?.();
     } catch {
       setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: true } : ss));
+      onSetDone?.();
     }
   }
 
@@ -552,6 +561,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
             <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: allDone ? "var(--dim)" : "var(--text)" }}>{row.exercise.name}</div>
             {target && <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "monospace", marginTop: 1 }}>{target}</div>}
           </div>
+          {hasPr && <div style={{ fontSize: 11, color: "#c99b2e", flexShrink: 0 }} title="Personal Record">🏆</div>}
           <div style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 700, color: allDone ? "#0c1a10" : doneSets > 0 ? "var(--text)" : "var(--dim)", border: `1px solid ${allDone ? "var(--good)" : doneSets > 0 ? "var(--steel)" : "var(--line)"}`, background: allDone ? "var(--good)" : "transparent", padding: "3px 7px", borderRadius: 5, flexShrink: 0, transition: "all .2s" }}>
             {doneSets}/{numSets}
           </div>
@@ -673,6 +683,37 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
   const [checkinDone, setCheckinDone] = useState(false);
   const checkinAutoFired = useRef(false);
 
+  // Rest timer
+  const REST_SECS = 60;
+  const [restEnabled, setRestEnabled] = useState<boolean>(() => {
+    try { return localStorage.getItem("mr_rest_timer") !== "off"; } catch { return true; }
+  });
+  const [restLeft, setRestLeft] = useState<number | null>(null);
+  const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function toggleRest() {
+    setRestEnabled((v) => {
+      const next = !v;
+      try { localStorage.setItem("mr_rest_timer", next ? "on" : "off"); } catch {}
+      if (!next) { clearInterval(restRef.current!); setRestLeft(null); }
+      return next;
+    });
+  }
+
+  function startRest() {
+    if (!restEnabled) return;
+    clearInterval(restRef.current!);
+    setRestLeft(REST_SECS);
+    restRef.current = setInterval(() => {
+      setRestLeft((v) => {
+        if (v === null || v <= 1) { clearInterval(restRef.current!); return null; }
+        return v - 1;
+      });
+    }, 1000);
+  }
+
+  useEffect(() => () => clearInterval(restRef.current!), []);
+
   function onAllExercisesDone() {
     if (!checkinAutoFired.current && !checkinDone) {
       checkinAutoFired.current = true;
@@ -728,23 +769,31 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
               <span style={{ fontSize: 13, letterSpacing: 0 }}>▁▃▅</span>
               {checkinDone ? "Logged" : "Check-in"}
             </button>
+            <button onClick={toggleRest} title={restEnabled ? "Rest timer ON — tap to disable" : "Rest timer OFF — tap to enable"} style={{ width: 38, height: 38, borderRadius: 9, border: `1px solid ${restEnabled ? "var(--steel)" : "var(--line)"}`, background: restEnabled ? "rgba(92,122,138,.18)" : "var(--panel)", color: restEnabled ? "var(--steel)" : "var(--dim)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>⏱</button>
             <button onClick={() => setCalOpen(true)} style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }} title="Calendar">📅</button>
             <a href="/client/dashboard" style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }} title="Overview">📊</a>
           </div>
         </div>
       </header>
 
+      {restLeft !== null && (
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30, background: "var(--accent)", color: "#fff", textAlign: "center", fontFamily: "monospace", fontSize: 18, fontWeight: 700, letterSpacing: ".05em", padding: "10px 0 calc(10px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
+          <span>Rest {restLeft}s</span>
+          <button onClick={() => { clearInterval(restRef.current!); setRestLeft(null); }} style={{ background: "rgba(255,255,255,.2)", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontFamily: "inherit" }}>Skip</button>
+        </div>
+      )}
+
       <main style={{ padding: 12, paddingBottom: 100 }}>
         {blocks.map((block, bi) => {
           if (block.kind === "single") {
-            return <ExerciseCard key={block.row.id} row={block.row} sessionId={session.id} defaultUnit={defaultUnit} onAllDone={onAllExercisesDone} />;
+            return <ExerciseCard key={block.row.id} row={block.row} sessionId={session.id} defaultUnit={defaultUnit} onAllDone={onAllExercisesDone} onSetDone={startRest} />;
           }
 
           if (block.kind === "superset") {
             const groupKey = block.rows[0].groupId!;
             return (
               <GroupCard key={groupKey} label="Superset" color={block.color} openKey={groupKey} activeKey={activeGroup} onToggle={toggleGroup} previewRows={block.rows}>
-                {block.rows.map((r) => <ExerciseCard key={r.id} row={r} sessionId={session.id} defaultUnit={defaultUnit} defaultOpen={true} />)}
+                {block.rows.map((r) => <ExerciseCard key={r.id} row={r} sessionId={session.id} defaultUnit={defaultUnit} defaultOpen={true} onSetDone={startRest} />)}
               </GroupCard>
             );
           }
@@ -880,3 +929,4 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
     </div>
   );
 }
+
