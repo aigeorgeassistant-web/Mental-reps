@@ -111,14 +111,14 @@ function ProgressGraph({
   const points = useMemo(() => {
     const bySession = new Map<string, LoggedSet[]>();
     for (const s of sets) {
-      const key = s.sessionId ?? s.date;
+      const key = s.sessionId ?? (s as any).displayDate ?? s.date;
       if (!bySession.has(key)) bySession.set(key, []);
       bySession.get(key)!.push(s);
     }
 
     return [...bySession.entries()]
       .map(([, sessionSets]) => {
-        const date = sessionSets[0].date;
+        const date = (sessionSets[0] as any).displayDate ?? sessionSets[0].date;
         let value: number | null = null;
 
         if (view === "1rm") {
@@ -280,7 +280,7 @@ function HistoryPanel({ exerciseId, exercise }: { exerciseId: string | null; exe
           <p style={{ fontSize: 10, color: "var(--dim)", marginBottom: 6 }}>Recent sets</p>
           {[...sets].reverse().slice(0, 10).map((s) => (
             <div key={s.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", borderBottom: "1px solid var(--line)" }}>
-              <span style={{ color: "var(--dim)" }}>{new Date(s.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+              <span style={{ color: "var(--dim)" }}>{new Date((s as any).displayDate ?? s.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
               <span style={{ color: "var(--text)" }}>
                 {s.weight != null ? `${s.weight}kg` : ""}
                 {s.reps != null ? ` × ${s.reps}` : ""}
