@@ -37,6 +37,7 @@ import {
   buildEmomTarget,
 } from "@/lib/timerNotation";
 import { useRouter } from "next/navigation";
+import { PasteImportModal } from "@/components/coach/PasteImportModal";
 
 type LoggedSetData = { setIndex: number; weight: number | null; reps: number | null; notes: string | null };
 type CheckInData = { sleep: number | null; mood: number | null; hydration: number | null; stress: number | null };
@@ -150,14 +151,18 @@ type DetailsEditState = {
 
 export function SessionEditor({
   session,
+  exercises,
   onSelectExerciseDetail,
   onAfterMutation,
   isTemplateSession,
+  onOpenAddExercise,
 }: {
   session: SessionWithExercises;
+  exercises: Exercise[];
   onSelectExerciseDetail: (exerciseId: string) => void;
   onAfterMutation?: () => void;
   isTemplateSession?: boolean;
+  onOpenAddExercise?: (prefillName: string, onCreated: (ex: Exercise) => void) => void;
 }) {
   const router = useRouter();
   const afterMutation = () => { router.refresh(); onAfterMutation?.(); };
@@ -187,6 +192,7 @@ export function SessionEditor({
   const [headerEdit, setHeaderEdit] = useState<HeaderEditState | null>(null);
   const [rowEdit, setRowEdit] = useState<RowEditState | null>(null);
   const [detailsEdit, setDetailsEdit] = useState<DetailsEditState | null>(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
 
   useEffect(() => {
     setRows([...session.sessionExercises].sort((a, b) => a.order - b.order));
@@ -551,9 +557,20 @@ export function SessionEditor({
           )}
         </div>
       )}
-      <p className="text-xs text-neutral-400 mb-3">
-        Click-drag down across rows to select, release to group as a superset.
-      </p>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-neutral-400">
+          Click-drag down across rows to select, release to group as a superset.
+        </p>
+        {!locked && (
+          <button
+            onClick={() => setPasteOpen(true)}
+            className="text-xs px-2.5 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-500 flex items-center gap-1 shrink-0 ml-2"
+            title="Paste exercises from spreadsheet"
+          >
+            📋 Paste
+          </button>
+        )}
+      </div>
 
       {rows.length === 0 ? (
         <p className="text-xs text-neutral-400">
@@ -953,6 +970,16 @@ export function SessionEditor({
           detailsEdit={detailsEdit}
           onCancel={() => setDetailsEdit(null)}
           onSave={saveDetailsEdit}
+        />
+      )}
+
+      {pasteOpen && (
+        <PasteImportModal
+          exercises={exercises}
+          sessionId={session.id}
+          currentRowCount={rows.length}
+          onClose={() => setPasteOpen(false)}
+          onImported={afterMutation}
         />
       )}
     </div>
@@ -1419,3 +1446,4 @@ function DetailsModal({
     </>
   );
 }
+
