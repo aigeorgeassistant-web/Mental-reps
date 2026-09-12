@@ -569,7 +569,7 @@ export function ClientDashboard({ clientName }: { clientName: string }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionRow | null>(null);
   const [selectedExercise, setSelectedExercise] = useState<ExerciseRow | null>(null);
-  const [rightTab, setRightTab] = useState<"history" | "templates">("history");
+  const [rightTab, setRightTab] = useState<"templates">("templates");
 
   const monthStr = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
 
@@ -599,12 +599,10 @@ export function ClientDashboard({ clientName }: { clientName: string }) {
     setSelectedKey(key);
     setSelectedSession(session);
     setSelectedExercise(null);
-    setRightTab("history");
   }
 
   function handleSelectExercise(ex: ExerciseRow) {
     setSelectedExercise(ex);
-    setRightTab("history");
   }
 
   return (
@@ -643,28 +641,33 @@ export function ClientDashboard({ clientName }: { clientName: string }) {
           <SessionPreview session={selectedSession} onSelectExercise={handleSelectExercise} />
         </div>
 
-        {/* Right panel — History | Templates */}
+        {/* Right panel — Performance | Templates */}
         <div style={{ width: 280, display: "flex", flexDirection: "column", flexShrink: 0 }}>
           <div style={{ display: "flex", borderBottom: "1px solid var(--line)" }}>
-            {(["history", "templates"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setRightTab(t)}
-                style={{
-                  flex: 1, padding: "10px 0", fontSize: 12, background: "transparent",
-                  border: "none", borderBottom: rightTab === t ? "2px solid var(--steel)" : "2px solid transparent",
-                  color: rightTab === t ? "var(--text)" : "var(--dim)",
-                  cursor: "pointer", fontWeight: rightTab === t ? 600 : 400,
-                }}
-              >
-                {t === "history" ? "History" : "Templates"}
-              </button>
-            ))}
+            <a
+              href="/client/performance"
+              style={{
+                flex: 1, padding: "10px 0", fontSize: 12, background: "transparent",
+                border: "none", borderBottom: "2px solid transparent",
+                color: "var(--dim)", cursor: "pointer", fontWeight: 400,
+                textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+              }}
+            >
+              📈 Performance
+            </a>
+            <button
+              onClick={() => setRightTab("templates")}
+              style={{
+                flex: 1, padding: "10px 0", fontSize: 12, background: "transparent",
+                border: "none", borderBottom: rightTab === "templates" ? "2px solid var(--steel)" : "2px solid transparent",
+                color: rightTab === "templates" ? "var(--text)" : "var(--dim)",
+                cursor: "pointer", fontWeight: rightTab === "templates" ? 600 : 400,
+              }}
+            >
+              Templates
+            </button>
           </div>
           <div style={{ flex: 1, overflowY: "auto" }}>
-            {rightTab === "history" && (
-              <HistoryPanel exerciseId={selectedExercise?.id ?? null} exercise={selectedExercise} />
-            )}
             {rightTab === "templates" && <TemplatesPanel />}
           </div>
         </div>
