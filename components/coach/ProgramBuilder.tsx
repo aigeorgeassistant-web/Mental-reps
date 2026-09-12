@@ -179,6 +179,16 @@ export function ProgramBuilder({
     });
   }
 
+  const [pasteNewExerciseName, setPasteNewExerciseName] = useState<string | null>(null);
+  const [pasteOnCreated, setPasteOnCreated] = useState<((ex: Exercise) => void) | null>(null);
+
+  function handleOpenAddExercise(name: string, onCreated: (ex: Exercise) => void) {
+    setPasteNewExerciseName(name);
+    setPasteOnCreated(() => onCreated);
+    // Switch left panel to add exercise tab — just call handleSelectExercise after creation
+    // The left panel AddExerciseForm will surface with the name pre-filled via BuilderLeftPanel prop
+  }
+
   // ─── Logout ──────────────────────────────────────────────────────────────────
 
   async function handleLogout() {
@@ -208,6 +218,7 @@ export function ProgramBuilder({
       {sessionWithOptimistic ? (
         <SessionEditor
           session={sessionWithOptimistic}
+          exercises={exercises}
           onSelectExerciseDetail={setSelectedExerciseId}
           isTemplateSession={selectedClientSession === null && selectedTemplateSession !== null}
           onAfterMutation={
@@ -215,6 +226,7 @@ export function ProgramBuilder({
               ? () => fetchTemplateSession(selectedTemplateSession.id)
               : undefined
           }
+          onOpenAddExercise={handleOpenAddExercise}
         />
       ) : (
         <div className="w-1/2 border-r p-4">
@@ -250,3 +262,4 @@ export function ProgramBuilder({
     </div>
   );
 }
+
