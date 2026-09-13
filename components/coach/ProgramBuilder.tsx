@@ -164,6 +164,11 @@ export function ProgramBuilder({
   // ─── After mutation ───────────────────────────────────────────────────────────────────
 
   async function handleAfterMutation() {
+    // Row/group/detail edits inside an already-open session only need this
+    // session's own data re-fetched (which already includes loggedSets) —
+    // not a full page refresh. router.refresh() is reserved for actions
+    // that change which sessions exist (create/move/delete/copy), which
+    // already trigger it themselves in BuilderLeftPanel.
     if (selectedTemplateSession) {
       const data = await fetchSession(selectedTemplateSession.id);
       if (data) setSelectedTemplateSession(data);
@@ -172,7 +177,6 @@ export function ProgramBuilder({
       if (data) setFetchedClientSession(data);
       refreshLoggedKeys();
     }
-    router.refresh();
   }
 
   // ─── Exercise add — optimistic ─────────────────────────────────────────────────────────
