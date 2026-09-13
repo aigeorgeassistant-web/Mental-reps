@@ -1,9 +1,21 @@
 // app/api/client/log-set/route.ts
 // Upserts one logged set. Uses sessionExerciseId + setIndex as the unique
 // key — re-logging the same set overwrites the previous entry.
+//
+// PR detection reads a cached "current best" row (ExercisePr, one per
+// client+exercise) instead of scanning every prior set on every log — see
+// ARCHITECTURE.md. The only time we fall back to a full history scan is
+// when the specific set that WAS the cached PR gets edited down below its
+// old value — that's the one case the cache alone can't answer, and it's
+// rare enough that a full scan there is fine.
+//
 // PR detection: uses estimated 1RM (Epley) so higher reps at same weight
 // can beat a heavier lower-rep set. For lowerIsBetter exercises, lowest
 // weight is the PR (no reps formula).
+//
+// Also verifies the session/sessionExercise being logged actually belongs
+// to the calling client — a client can only ever write logged sets into
+// their own sessions.
 
 import { NextResponse } from "next/server";
 import { getCurrentRole } from "@/lib/role";
@@ -12,6 +24,29 @@ import { db } from "@/lib/db";
 function epley(weight: number, reps: number): number {
   if (reps === 1) return weight;
   return weight * (1 + reps / 30);
+}
+
+// Full rescan — only used when the cached PR itself just got edited down.
+async function recomputeBest(
+  clientId: string,
+  exerciseId: string,
+  lowerIsBetter: boolean
+): Promise<{ loggedSetId: string; bestWeight: number | null; bestReps: number | null; bestE1rm: number | null } | null> {
+  const sets = await db.loggedSet.findMany({
+    where: { clientId, exerciseId, weight: { not: null } },
+    select: { id: true, weight: true, reps: true },
+  });
+  if (sets.length === 0) return null;
+
+  if (lowerIsBetter) {
+    const best = sets.reduce((a, b) => ((b.weight ?? Infinity) < (a.weight ?? Infinity) ? b : a));
+    return { loggedSetId: best.id, bestWeight: best.weight, bestReps: best.reps, bestE1rm: null };
+  }
+
+  const valueOf = (s: { weight: number | null; reps: number | null }) =>
+    s.reps ? epley(s.weight!, s.reps) : (s.weight ?? 0);
+  const best = sets.reduce((a, b) => (valueOf(b) > valueOf(a) ? b : a));
+  return { loggedSetId: best.id, bestWeight: best.weight, bestReps: best.reps, bestE1rm: valueOf(best) };
 }
 
 export async function POST(req: Request) {
@@ -28,6 +63,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "exerciseId and setIndex required" }, { status: 400 });
     }
 
+    // Ownership check: this sessionExercise (and session, if given) must
+    // belong to a session under a program that belongs to THIS client.
+    if (sessionExerciseId != null) {
+      const owned = await db.sessionExercise.findFirst({
+        where: { id: sessionExerciseId, session: { program: { clientId: client.id } } },
+        select: { id: true },
+      });
+      if (!owned) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (sessionId != null) {
+      const ownedSession = await db.session.findFirst({
+        where: { id: sessionId, program: { clientId: client.id } },
+        select: { id: true },
+      });
+      if (!ownedSession) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
     // Get exercise to check lowerIsBetter
     const exercise = await db.exercise.findUnique({
       where: { id: exerciseId },
@@ -35,46 +87,29 @@ export async function POST(req: Request) {
     });
     const lowerIsBetter = exercise?.lowerIsBetter ?? false;
 
-    // Fetch all prior sets for this client+exercise (excluding current upsert key)
-    const priorSets = await db.loggedSet.findMany({
-      where: {
-        clientId: client.id,
-        exerciseId,
-        ...(sessionExerciseId != null ? {
-          NOT: {
-            AND: [
-              { sessionExerciseId },
-              { setIndex },
-            ],
-          },
-        } : {}),
-      },
-      select: { weight: true, reps: true },
+    // Was this specific set previously the cached PR? Need to know before
+    // we overwrite it, in case the new value demotes it.
+    let existingSet: { id: string; isPr: boolean } | null = null;
+    if (sessionExerciseId != null) {
+      existingSet = await db.loggedSet.findUnique({
+        where: { sessionExerciseId_setIndex: { sessionExerciseId, setIndex } },
+        select: { id: true, isPr: true },
+      });
+    }
+
+    // One row read instead of scanning the client's whole history.
+    const prRow = await db.exercisePr.findUnique({
+      where: { clientId_exerciseId: { clientId: client.id, exerciseId } },
     });
 
     let isPr = false;
+    let newE1rm: number | null = null;
     if (weight != null) {
       if (lowerIsBetter) {
-        // Lower weight = better (e.g. assisted pull-ups, rowing for time)
-        if (priorSets.length === 0) {
-          isPr = true;
-        } else {
-          const bestPrior = Math.min(...priorSets.map((s) => s.weight ?? Infinity));
-          isPr = weight < bestPrior;
-        }
+        isPr = !prRow || prRow.bestWeight == null || weight < prRow.bestWeight;
       } else {
-        // Higher e1RM = better
-        const newE1rm = reps ? epley(weight, reps) : weight;
-        if (priorSets.length === 0) {
-          isPr = true;
-        } else {
-          const bestPriorE1rm = Math.max(
-            ...priorSets.map((s) =>
-              s.weight && s.reps ? epley(s.weight, s.reps) : (s.weight ?? 0)
-            )
-          );
-          isPr = newE1rm > bestPriorE1rm;
-        }
+        newE1rm = reps ? epley(weight, reps) : weight;
+        isPr = !prRow || prRow.bestE1rm == null || newE1rm > prRow.bestE1rm;
       }
     }
 
@@ -113,6 +148,43 @@ export async function POST(req: Request) {
             isPr,
           },
         });
+
+    // Keep the cache in sync.
+    if (isPr && weight != null) {
+      await db.exercisePr.upsert({
+        where: { clientId_exerciseId: { clientId: client.id, exerciseId } },
+        create: {
+          clientId: client.id,
+          exerciseId,
+          loggedSetId: logged.id,
+          bestWeight: weight,
+          bestReps: reps ?? null,
+          bestE1rm: lowerIsBetter ? null : newE1rm,
+        },
+        update: {
+          loggedSetId: logged.id,
+          bestWeight: weight,
+          bestReps: reps ?? null,
+          bestE1rm: lowerIsBetter ? null : newE1rm,
+        },
+      });
+    } else if (existingSet?.isPr && prRow?.loggedSetId === existingSet.id) {
+      // The set that WAS the cached PR just got edited down — the cache
+      // is stale and this is the one case that needs a full rescan.
+      const recomputed = await recomputeBest(client.id, exerciseId, lowerIsBetter);
+      if (recomputed) {
+        await db.exercisePr.upsert({
+          where: { clientId_exerciseId: { clientId: client.id, exerciseId } },
+          create: { clientId: client.id, exerciseId, ...recomputed },
+          update: { ...recomputed },
+        });
+        if (recomputed.loggedSetId !== logged.id) {
+          await db.loggedSet.update({ where: { id: recomputed.loggedSetId }, data: { isPr: true } });
+        }
+      } else {
+        await db.exercisePr.delete({ where: { clientId_exerciseId: { clientId: client.id, exerciseId } } }).catch(() => {});
+      }
+    }
 
     return NextResponse.json({ logged, isPr });
   } catch (err) {
