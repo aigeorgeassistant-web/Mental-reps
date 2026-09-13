@@ -228,9 +228,56 @@ function EditExerciseForm({ exercise, onDone }: { exercise: Exercise; onDone: ()
   );
 }
 
+
+// ─── Exercise Log History (mini view in right panel) ─────────────────────────
+
+type HistorySet = { setIndex: number; weight: number | null; reps: number | null };
+type HistorySession = { sessionId: string; date: string; sets: HistorySet[] };
+
+function ExerciseHistory({ clientId, exerciseId }: { clientId: string; exerciseId: string }) {
+  const [history, setHistory] = useState<HistorySession[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    setHistory([]);
+    fetch(`/api/coach/clients/${clientId}/exercise-history/${exerciseId}`)
+      .then((r) => r.json())
+      .then((data) => { setHistory(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [clientId, exerciseId]);
+
+  if (loading) return <p className="text-xs text-neutral-400">Loading history…</p>;
+  if (history.length === 0) return <p className="text-xs text-neutral-400">No logged sets yet.</p>;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {history.map((session) => (
+        <div key={session.sessionId}>
+          <p className="text-[10px] font-medium text-neutral-400 mb-0.5">{session.date}</p>
+          <div className="flex flex-wrap gap-1">
+            {session.sets
+              .filter((s) => s.weight !== null || s.reps !== null)
+              .sort((a, b) => a.setIndex - b.setIndex)
+              .map((s, i) => (
+                <span
+                  key={i}
+                  className="rounded px-1.5 py-0.5 text-[10px] font-mono font-semibold"
+                  style={{ background: "rgba(84,193,122,.12)", color: "#1a6b3c", border: "1px solid rgba(84,193,122,.3)" }}
+                >
+                  {s.weight != null ? `${s.weight}kg` : ""}{s.weight != null && s.reps != null ? "×" : ""}{s.reps != null ? s.reps : ""}
+                </span>
+              ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Detail View ──────────────────────────────────────────────────────────────
 
-function DetailView({ exercise }: { exercise: Exercise | null }) {
+function DetailView({ exercise, currentClientId }: { exercise: Exercise | null; currentClientId: string }) {
   const [editing, setEditing] = useState(false);
   useEffect(() => { setEditing(false); }, [exercise?.id]);
 
@@ -268,8 +315,12 @@ function DetailView({ exercise }: { exercise: Exercise | null }) {
         </div>
       )}
       <div className="border-t pt-3">
-        <p className="text-xs font-medium text-neutral-500 mb-1">Progression</p>
-        <p className="text-xs text-neutral-400">Log history coming soon.</p>
+        <p className="text-xs font-medium text-neutral-500 mb-2">Recent logs</p>
+        {currentClientId ? (
+          <ExerciseHistory clientId={currentClientId} exerciseId={exercise.id} />
+        ) : (
+          <p className="text-xs text-neutral-400">No client selected.</p>
+        )}
       </div>
     </div>
   );
@@ -822,7 +873,7 @@ export function BuilderRightPanel({
         <TabBtn label="Templates" active={tab === "templates"} onClick={() => setTab("templates")} />
       </div>
 
-      {tab === "detail" && <DetailView exercise={exercise} />}
+      {tab === "detail" && <DetailView exercise={exercise} currentClientId={currentClientId} />}
       {tab === "browse" && (
         <BrowseClientsView currentClientId={currentClientId} monthCursor={monthCursor} />
       )}
