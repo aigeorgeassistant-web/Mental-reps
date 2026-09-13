@@ -66,9 +66,9 @@ export async function copySessionToClient(
       },
     });
 
-    for (const se of source.sessionExercises) {
-      await db.sessionExercise.create({
-        data: {
+    if (source.sessionExercises.length > 0) {
+      await db.sessionExercise.createMany({
+        data: source.sessionExercises.map((se) => ({
           sessionId: newSession.id,
           exerciseId: se.exerciseId,
           order: se.order,
@@ -86,7 +86,7 @@ export async function copySessionToClient(
           slotPoolExerciseIds: se.slotPoolExerciseIds,
           rpeEnabled: se.rpeEnabled,
           restSeconds: se.restSeconds,
-        },
+        })),
       });
     }
 
