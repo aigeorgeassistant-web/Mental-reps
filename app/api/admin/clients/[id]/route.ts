@@ -21,6 +21,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (!client) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Cascade delete in correct order
+  await db.exercisePr.deleteMany({ where: { clientId: id } });
   await db.loggedSet.deleteMany({ where: { clientId: id } });
   await db.checkIn.deleteMany({ where: { clientId: id } });
   await db.clientInvite.deleteMany({ where: { clientId: id } });
