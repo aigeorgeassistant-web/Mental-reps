@@ -137,6 +137,7 @@ export default function AdminPage() {
   async function deleteCoach(id: string) {
     if (!confirm("Delete this coach and all their data?")) return;
     setDeletingId(id);
+    setCoaches(prev => prev.filter(c => c.id !== id));
     await fetch(`/api/admin/coaches/${id}`, { method: "DELETE" });
     setDeletingId(null);
     load();
@@ -145,6 +146,7 @@ export default function AdminPage() {
   async function deleteClient(id: string) {
     if (!confirm("Delete this client?")) return;
     setDeletingId(id);
+    setClients(prev => prev.filter(c => c.id !== id));
     await fetch(`/api/admin/clients/${id}`, { method: "DELETE" });
     setDeletingId(null);
     load();
