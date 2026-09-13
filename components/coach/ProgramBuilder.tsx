@@ -1,9 +1,7 @@
 "use client";
 // components/coach/ProgramBuilder.tsx
 // monthCursor lifted so left + right panels stay in sync.
-// Handles both client sessions (pre-loaded) and template sessions (fetched on demand).
-// Optimistic exercise add: appends a fake row immediately on click, server catches up.
-// Client sessions are also fetched via API on click so loggedSets are included.
+// Client sessions fetched via API on click so loggedSets are included.
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -14,7 +12,7 @@ import { BuilderRightPanel } from "./BuilderRightPanel";
 import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
 import { authClient } from "@/lib/auth/client";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────────────────
 
 type ClientWithPrograms = Client & {
   programs: (Program & {
@@ -33,7 +31,17 @@ type FullSession = Session & {
 
 type OptimisticRow = SessionExercise & { exercise: Exercise; _optimistic: true };
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────────────────
+
+function monthKey(d: Date): string {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+}
+
+function dateKey(d: Date): string {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────────────────
 
 export function ProgramBuilder({
   client,
@@ -45,13 +53,11 @@ export function ProgramBuilder({
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   const [selectedTemplateSession, setSelectedTemplateSession] = useState<FullSession | null>(null);
-  // Fetched full session for client sessions (includes loggedSets)
   const [fetchedClientSession, setFetchedClientSession] = useState<FullSession | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [monthCursor, setMonthCursor] = useState<Date>(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
-  // Date keys that have logged sets — used to paint calendar chips green
   const [loggedDateKeys, setLoggedDateKeys] = useState<Set<string>>(new Set());
 
   const [optimisticState, setOptimisticState] = useState<
@@ -62,8 +68,6 @@ export function ProgramBuilder({
   const router = useRouter();
 
   const program = client.programs[0];
-
-  // The session shown in the center panel — prefer fetched (has loggedSets) over pre-loaded
   const selectedClientSession = program?.sessions.find((s) => s.id === selectedSessionId) ?? null;
   const sessionForEditor: FullSession | null =
     fetchedClientSession ?? selectedClientSession ?? selectedTemplateSession;
@@ -71,16 +75,14 @@ export function ProgramBuilder({
   // Fetch logged date keys whenever month changes
   useEffect(() => {
     if (!client.id) return;
-    const monthStr = ;
-    fetch()
+    const mk = monthKey(monthCursor);
+    fetch("/api/coach/clients/" + client.id + "/sessions?month=" + mk)
       .then((r) => r.json())
       .then((data: Array<{ id: string; date: string; _hasLogs?: boolean }>) => {
         const keys = new Set<string>();
         for (const s of data) {
           if (s._hasLogs && s.date) {
-            const d = new Date(s.date);
-            const key = ;
-            keys.add(key);
+            keys.add(dateKey(new Date(s.date)));
           }
         }
         setLoggedDateKeys(keys);
@@ -88,7 +90,7 @@ export function ProgramBuilder({
       .catch(() => {});
   }, [client.id, monthCursor]);
 
-  // When server data catches up, clear optimistic rows
+  // Clear optimistic rows when server catches up
   useEffect(() => {
     if (!selectedClientSession) return;
     const state = optimisticState[selectedClientSession.id];
@@ -102,7 +104,6 @@ export function ProgramBuilder({
     }
   }, [selectedClientSession?.sessionExercises.length, selectedClientSession?.id]);
 
-  // Merge optimistic rows
   const sessionWithOptimistic: FullSession | null = sessionForEditor
     ? {
         ...sessionForEditor,
@@ -115,23 +116,36 @@ export function ProgramBuilder({
 
   const selectedExercise = exercises.find((e) => e.id === selectedExerciseId) ?? null;
 
-  // ─── Fetch any session (client or template) via API ──────────────────────────
+  // ─── Fetch session via API ──────────────────────────────────────────────────────
 
   async function fetchSession(sessionId: string): Promise<FullSession | null> {
     try {
-      const res = await fetch();
+      const res = await fetch("/api/coach/sessions/" + sessionId);
       if (res.ok) return res.json();
     } catch {}
     return null;
   }
 
-  // ─── Session selection handlers ─────────────────────────────────────────────
+  async function refreshLoggedKeys() {
+    const mk = monthKey(monthCursor);
+    fetch("/api/coach/clients/" + client.id + "/sessions?month=" + mk)
+      .then((r) => r.json())
+      .then((data: Array<{ id: string; date: string; _hasLogs?: boolean }>) => {
+        const keys = new Set<string>();
+        for (const s of data) {
+          if (s._hasLogs && s.date) keys.add(dateKey(new Date(s.date)));
+        }
+        setLoggedDateKeys(keys);
+      })
+      .catch(() => {});
+  }
+
+  // ─── Session selection ───────────────────────────────────────────────────────────────
 
   async function handleSelectSession(sessionId: string) {
     setSelectedSessionId(sessionId);
     setSelectedTemplateSession(null);
     setFetchedClientSession(null);
-    // Fetch full session with loggedSets
     const full = await fetchSession(sessionId);
     if (full) setFetchedClientSession(full);
   }
@@ -147,7 +161,7 @@ export function ProgramBuilder({
     setSelectedTemplateSession(null);
   }
 
-  // ─── After mutation: re-fetch current session ────────────────────────────────
+  // ─── After mutation ───────────────────────────────────────────────────────────────────
 
   async function handleAfterMutation() {
     if (selectedTemplateSession) {
@@ -156,27 +170,12 @@ export function ProgramBuilder({
     } else if (selectedSessionId) {
       const data = await fetchSession(selectedSessionId);
       if (data) setFetchedClientSession(data);
-      // Also refresh logged keys
-      const monthStr = ;
-      fetch()
-        .then((r) => r.json())
-        .then((sessions: Array<{ id: string; date: string; _hasLogs?: boolean }>) => {
-          const keys = new Set<string>();
-          for (const s of sessions) {
-            if (s._hasLogs && s.date) {
-              const d = new Date(s.date);
-              const key = ;
-              keys.add(key);
-            }
-          }
-          setLoggedDateKeys(keys);
-        })
-        .catch(() => {});
+      refreshLoggedKeys();
     }
     router.refresh();
   }
 
-  // ─── Exercise add — optimistic ───────────────────────────────────────────────
+  // ─── Exercise add — optimistic ─────────────────────────────────────────────────────────
 
   function handleSelectExercise(exerciseId: string) {
     const targetSessionId = selectedSessionId ?? selectedTemplateSession?.id ?? null;
@@ -194,7 +193,7 @@ export function ProgramBuilder({
     const newExpectedCount = serverCount + pendingCount + 1;
 
     const optimisticRow: OptimisticRow = {
-      id: ,
+      id: "__optimistic_" + Date.now() + "_" + Math.random(),
       sessionId: targetSessionId,
       exerciseId,
       exercise,
@@ -239,15 +238,15 @@ export function ProgramBuilder({
     });
   }
 
-  const [pasteNewExerciseName, setPasteNewExerciseName] = useState<string | null>(null);
-  const [pasteOnCreated, setPasteOnCreated] = useState<((ex: Exercise) => void) | null>(null);
+  const [, setPasteNewExerciseName] = useState<string | null>(null);
+  const [, setPasteOnCreated] = useState<((ex: Exercise) => void) | null>(null);
 
   function handleOpenAddExercise(name: string, onCreated: (ex: Exercise) => void) {
     setPasteNewExerciseName(name);
     setPasteOnCreated(() => onCreated);
   }
 
-  // ─── Logout ──────────────────────────────────────────────────────────────────
+  // ─── Logout ──────────────────────────────────────────────────────────────────────────────
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -255,7 +254,7 @@ export function ProgramBuilder({
     router.push("/sign-in");
   }
 
-  // ─── Render ──────────────────────────────────────────────────────────────────
+  // ─── Render ────────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex min-h-screen relative">
