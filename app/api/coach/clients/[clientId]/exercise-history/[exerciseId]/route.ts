@@ -43,6 +43,7 @@ export async function GET(
 
   for (const ls of loggedSets) {
     const sid = ls.sessionId;
+    if (!sid) continue; // sessionId is nullable in schema — skip orphaned sets
     if (!sessionMap.has(sid)) {
       const rawDate = ls.session?.date;
       const label = rawDate
@@ -50,7 +51,7 @@ export async function GET(
         : (ls.session?.dayLabel ?? "Unknown");
       sessionMap.set(sid, { sessionId: sid, date: label, sets: [] });
     }
-    sessionMap.get(sid)!.sets.push({
+    sessionMap.get(sid)?.sets.push({
       setIndex: ls.setIndex,
       weight: ls.weight !== null ? Number(ls.weight) : null,
       reps: ls.reps,
