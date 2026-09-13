@@ -36,6 +36,7 @@ export function BuilderLeftPanel({
   exercises,
   monthCursor,
   setMonthCursor,
+  loggedDateKeys,
   onSelectSession,
   onSelectExercise,
   onPreviewExercise,
@@ -48,6 +49,7 @@ export function BuilderLeftPanel({
   exercises: Exercise[];
   monthCursor: Date;
   setMonthCursor: (d: Date) => void;
+  loggedDateKeys: Set<string>;
   onSelectSession: (sessionId: string) => void;
   onSelectExercise: (exerciseId: string) => void;
   onPreviewExercise: (exerciseId: string) => void;
@@ -241,6 +243,7 @@ export function BuilderLeftPanel({
             monthCursor={monthCursor}
             setMonthCursor={setMonthCursor}
             sessionsByDateKey={sessionsByDateKey}
+            loggedDateKeys={loggedDateKeys}
             currentClientId={clientId}
             onDayClick={handleDayClick}
             onChipClick={handleChipClick}
@@ -310,7 +313,6 @@ export function BuilderLeftPanel({
 
         {tab === "exercises" && exercisesView === "list" && (
           <div>
-            {/* Search + Filter + Add row */}
             <div className="flex items-center gap-1 mb-2">
               <input
                 type="text"
@@ -319,7 +321,6 @@ export function BuilderLeftPanel({
                 onChange={(e) => setSearch(e.target.value)}
                 className="flex-1 rounded border px-2 py-1 text-sm min-w-0"
               />
-              {/* Filter toggle + X */}
               <div className="flex items-center shrink-0">
                 <button
                   onClick={() => setShowFilters((v) => !v)}
@@ -354,7 +355,6 @@ export function BuilderLeftPanel({
               </button>
             </div>
 
-            {/* Filter panel */}
             {showFilters && (
               <div className="mb-3 border rounded p-2 bg-neutral-50 flex flex-col gap-3">
                 <div>
@@ -484,9 +484,10 @@ function EmptyState({ text }: { text: string }) {
   return <p className="text-xs text-neutral-400">{text}</p>;
 }
 
-function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, currentClientId,
+function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, loggedDateKeys, currentClientId,
   onDayClick, onChipClick, onDropSession, disabled, deleteMode, selectedIds, onToggleDeleteMode, onDeleteSelected, deleting }: {
   monthCursor: Date; setMonthCursor: (d: Date) => void; sessionsByDateKey: Map<string, Session[]>;
+  loggedDateKeys: Set<string>;
   currentClientId: string; onDayClick: (dateKey: string) => void; onChipClick: (sessionId: string) => void;
   onDropSession: (sessionId: string, sourceClientId: string, targetDateKey: string) => void;
   disabled: boolean; deleteMode: boolean; selectedIds: string[];
@@ -535,6 +536,7 @@ function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, current
       <div className="grid grid-cols-7 gap-1">
         {days.map(({ date, inMonth, key }) => {
           const daySessions = sessionsByDateKey.get(key) ?? [];
+          const hasLogs = loggedDateKeys.has(key);
           const isOver = dragOver === key;
           return (
             <div key={key}
@@ -556,6 +558,8 @@ function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, current
                         ? selectedIds.includes(daySessions[0].id)
                           ? "bg-red-500 text-white"
                           : "bg-red-100 text-red-700 border border-red-300"
+                        : hasLogs
+                        ? "bg-green-600 text-white cursor-grab active:cursor-grabbing"
                         : "bg-neutral-800 text-white cursor-grab active:cursor-grabbing"
                     }`}
                     title={daySessions[0].dayLabel}>
