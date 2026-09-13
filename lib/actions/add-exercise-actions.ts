@@ -4,8 +4,12 @@
 // exercise list.
 
 import { db } from "../db";
+import { requireOwnedSession } from "./ownership";
 
 export async function addExerciseToSession(sessionId: string, exerciseId: string) {
+  const coach = await requireOwnedSession(sessionId);
+  if (!coach) return;
+
   const count = await db.sessionExercise.count({ where: { sessionId } });
 
   await db.sessionExercise.create({
