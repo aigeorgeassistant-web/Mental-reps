@@ -9,12 +9,19 @@
 // - applyGroupInterval: writes the SAME full work/rest/rounds to every id
 //   independently — each exercise is self-contained.
 // - applyGroupEmom: writes the same EMOM string to every id.
+//
+// Every export here verifies the caller owns all given ids before writing
+// — see lib/actions/ownership.ts.
 
 import { db } from "../db";
 import { randomUUID } from "crypto";
 import { buildIntervalTarget, buildEmomTarget } from "../timerNotation";
+import { requireOwnedSessionExercises } from "./ownership";
 
 export async function assignSupersetGroup(sessionExerciseIds: string[], groupColor: string) {
+  const coach = await requireOwnedSessionExercises(sessionExerciseIds);
+  if (!coach) return;
+
   const groupId = randomUUID();
   await Promise.all(
     sessionExerciseIds.map((id) =>
@@ -32,6 +39,9 @@ export async function applyGroupCircuit(
   restSec: number,
   rounds: number
 ) {
+  const coach = await requireOwnedSessionExercises(sessionExerciseIds);
+  if (!coach) return;
+
   await Promise.all(
     sessionExerciseIds.map((id, index) =>
       db.sessionExercise.update({
@@ -50,6 +60,9 @@ export async function applyGroupInterval(
   restSec: number,
   rounds: number
 ) {
+  const coach = await requireOwnedSessionExercises(sessionExerciseIds);
+  if (!coach) return;
+
   await Promise.all(
     sessionExerciseIds.map((id) =>
       db.sessionExercise.update({
@@ -65,6 +78,9 @@ export async function applyGroupEmom(
   roundSec: number,
   reps?: number
 ) {
+  const coach = await requireOwnedSessionExercises(sessionExerciseIds);
+  if (!coach) return;
+
   await Promise.all(
     sessionExerciseIds.map((id) =>
       db.sessionExercise.update({
@@ -76,6 +92,9 @@ export async function applyGroupEmom(
 }
 
 export async function clearGroupTargets(sessionExerciseIds: string[]) {
+  const coach = await requireOwnedSessionExercises(sessionExerciseIds);
+  if (!coach) return;
+
   await Promise.all(
     sessionExerciseIds.map((id) =>
       db.sessionExercise.update({
