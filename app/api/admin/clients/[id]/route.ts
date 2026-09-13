@@ -23,6 +23,8 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   // Cascade delete in correct order
   await db.loggedSet.deleteMany({ where: { clientId: id } });
   await db.checkIn.deleteMany({ where: { clientId: id } });
+  await db.clientInvite.deleteMany({ where: { clientId: id } });
+  await db.templatePurchase.deleteMany({ where: { clientId: id } });
 
   // Delete programs and their sessions/exercises
   const programs = await db.program.findMany({ where: { clientId: id }, select: { id: true } });
