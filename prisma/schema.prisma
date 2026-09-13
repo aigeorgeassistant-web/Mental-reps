@@ -69,6 +69,7 @@ model Client {
   invites           ClientInvite[]
   templatePurchases TemplatePurchase[]
   checkIns          CheckIn[]
+  exercisePrs       ExercisePr[]
 }
 
 // The shared exercise catalog.
@@ -86,6 +87,7 @@ model Exercise {
 
   sessionExercises SessionExercise[]
   loggedSets       LoggedSet[]
+  exercisePrs      ExercisePr[]
 }
 
 // A reusable template (isTemplate=true) OR a live client program.
@@ -177,6 +179,26 @@ model LoggedSet {
   isPr              Boolean  @default(false)
 
   @@unique([sessionExerciseId, setIndex])
+}
+
+// Cached "current best" per client+exercise, so PR detection on every log
+// is a single row lookup instead of scanning all of a client's history.
+// Rewritten by app/api/client/log-set on every new PR. loggedSetId is a
+// plain pointer (no FK) so it never blocks a LoggedSet cascade-delete —
+// only clientId/exerciseId are enforced relations here.
+model ExercisePr {
+  id          String   @id @default(cuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id])
+  exerciseId  String
+  exercise    Exercise @relation(fields: [exerciseId], references: [id])
+  loggedSetId String?
+  bestWeight  Float?
+  bestReps    Int?
+  bestE1rm    Float?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([clientId, exerciseId])
 }
 
 // Invite tokens sent to clients so they can link their Google account.
