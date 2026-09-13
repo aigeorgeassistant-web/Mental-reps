@@ -19,9 +19,27 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const client = await db.client.findUnique({ where: { id } });
   if (!client) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Cascade delete in correct order
+  await db.loggedSet.deleteMany({ where: { clientId: id } });
+  await db.checkIn.deleteMany({ where: { clientId: id } });
+
+  // Delete programs and their sessions/exercises
+  const programs = await db.program.findMany({ where: { clientId: id }, select: { id: true } });
+  for (const prog of programs) {
+    const sessions = await db.session.findMany({ where: { programId: prog.id }, select: { id: true } });
+    for (const sess of sessions) {
+      await db.sessionExercise.deleteMany({ where: { sessionId: sess.id } });
+    }
+    await db.session.deleteMany({ where: { programId: prog.id } });
+  }
+  await db.program.deleteMany({ where: { clientId: id } });
+
   await db.client.delete({ where: { id } });
+
   if (client.authUserId) {
     await (auth as any).admin.removeUser({ userId: client.authUserId }).catch(() => {});
   }
+
   return NextResponse.json({ ok: true });
 }
