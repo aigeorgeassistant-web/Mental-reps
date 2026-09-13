@@ -157,44 +157,50 @@ export async function applyTemplateToClient(
       await db.session.deleteMany({ where: { id: { in: ids } } });
     }
 
-    // Create sessions from template
-    for (let i = 0; i < template.sessions.length; i++) {
-      const src = template.sessions[i];
-      const [yr, mo, dy] = scheduledDates[i].split("-").map(Number);
-
-      const newSession = await db.session.create({
-        data: {
-          programId: program.id,
-          date: new Date(yr, mo - 1, dy, 12, 0, 0),
-          dayLabel: src.dayLabel,
-          order: src.order,
-          weekNumber: src.weekNumber,
-        },
-      });
-
-      for (const se of src.sessionExercises) {
-        await db.sessionExercise.create({
+    // Create sessions from template — sessions in parallel (each is
+    // independent), then all their exercises in a single batched insert
+    // instead of one sequential create per exercise.
+    const newSessions = await Promise.all(
+      template.sessions.map((src, i) => {
+        const [yr, mo, dy] = scheduledDates[i].split("-").map(Number);
+        return db.session.create({
           data: {
-            sessionId: newSession.id,
-            exerciseId: se.exerciseId,
-            order: se.order,
-            sets: se.sets,
-            reps: se.reps,
-            setType: se.setType,
-            loadType: se.loadType,
-            loadValue: se.loadValue,
-            loadUnit: se.loadUnit,
-            coachNote: se.coachNote,
-            target: se.target,
-            groupId: se.groupId,
-            groupColor: se.groupColor,
-            isRandomizerSlot: se.isRandomizerSlot,
-            slotPoolExerciseIds: se.slotPoolExerciseIds,
-            rpeEnabled: se.rpeEnabled,
-            restSeconds: se.restSeconds,
+            programId: program.id,
+            date: new Date(yr, mo - 1, dy, 12, 0, 0),
+            dayLabel: src.dayLabel,
+            order: src.order,
+            weekNumber: src.weekNumber,
           },
         });
-      }
+      })
+    );
+
+    const newSessionIdFor = new Map(template.sessions.map((src, i) => [src.id, newSessions[i].id]));
+
+    const exerciseRows = template.sessions.flatMap((src) =>
+      src.sessionExercises.map((se) => ({
+        sessionId: newSessionIdFor.get(src.id)!,
+        exerciseId: se.exerciseId,
+        order: se.order,
+        sets: se.sets,
+        reps: se.reps,
+        setType: se.setType,
+        loadType: se.loadType,
+        loadValue: se.loadValue,
+        loadUnit: se.loadUnit,
+        coachNote: se.coachNote,
+        target: se.target,
+        groupId: se.groupId,
+        groupColor: se.groupColor,
+        isRandomizerSlot: se.isRandomizerSlot,
+        slotPoolExerciseIds: se.slotPoolExerciseIds,
+        rpeEnabled: se.rpeEnabled,
+        restSeconds: se.restSeconds,
+      }))
+    );
+
+    if (exerciseRows.length > 0) {
+      await db.sessionExercise.createMany({ data: exerciseRows });
     }
 
     return { sessionsCreated: template.sessions.length };
