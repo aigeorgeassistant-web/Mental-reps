@@ -4,8 +4,12 @@
 // database.
 
 import { db } from "../db";
+import { requireOwnedSessionExercises } from "./ownership";
 
 export async function reorderSessionExercises(orderedIds: string[]) {
+  const coach = await requireOwnedSessionExercises(orderedIds);
+  if (!coach) return;
+
   await Promise.all(
     orderedIds.map((id, index) =>
       db.sessionExercise.update({
