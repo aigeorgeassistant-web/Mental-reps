@@ -17,7 +17,7 @@
 //   deleteSessionExercises, which protects a Circuit's round count if the
 //   row holding it is removed.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Exercise, Session, SessionExercise, Units } from "@prisma/client";
 import { reorderSessionExercises } from "@/lib/actions/reorder-actions";
 import {
@@ -36,7 +36,6 @@ import {
   buildIntervalTarget,
   buildEmomTarget,
 } from "@/lib/timerNotation";
-import { useRouter } from "next/navigation";
 import { PasteImportModal } from "@/components/coach/PasteImportModal";
 
 type LoggedSetData = { setIndex: number; weight: number | null; reps: number | null; notes: string | null };
@@ -164,8 +163,12 @@ export function SessionEditor({
   isTemplateSession?: boolean;
   onOpenAddExercise?: (prefillName: string, onCreated: (ex: Exercise) => void) => void;
 }) {
-  const router = useRouter();
-  const afterMutation = () => { router.refresh(); onAfterMutation?.(); };
+  // Row/group/detail edits inside an already-open session don't need a
+  // full page refresh — onAfterMutation() re-fetches just this session's
+  // data from the API. router.refresh() stays reserved for actions that
+  // change which sessions exist (create/move/delete/copy) — those already
+  // call it themselves in BuilderLeftPanel.
+  const afterMutation = () => { onAfterMutation?.(); };
   const [rows, setRows] = useState<Row[]>(
     [...session.sessionExercises].sort((a, b) => a.order - b.order)
   );
@@ -202,8 +205,44 @@ export function SessionEditor({
   useEffect(() => { if (isTemplateSession) setTemplateLocked(true); }, [session.id, isTemplateSession]);
   const locked = isTemplateSession === true && templateLocked;
 
-  const blocks = buildBlocks(rows);
+  const blocks = useMemo(() => buildBlocks(rows), [rows]);
   const hasOptimisticRows = rows.some((r) => (r as any)._optimistic === true);
+
+  // Applies a field patch to specific rows in local state immediately,
+  // before the server action resolves — this is what makes group/detail/
+  // target edits feel instant instead of waiting on a round trip.
+  function updateRowsLocal(ids: string[], updater: (r: Row) => Row) {
+    setRows((prev) => prev.map((r) => (ids.includes(r.id) ? updater(r) : r)));
+  }
+
+  // Mirrors deleteSessionExercises' circuit round-count migration (see
+  // lib/actions/delete-actions.ts) so the optimistic preview matches what
+  // the server will actually end up saving.
+  function applyLocalDelete(ids: string[]) {
+    const idSet = new Set(ids);
+    setRows((prev) => {
+      const groupIds = [...new Set(prev.filter((r) => r.groupId && idSet.has(r.id)).map((r) => r.groupId as string))];
+      let working = [...prev];
+      for (const groupId of groupIds) {
+        const allInGroup = working.filter((r) => r.groupId === groupId).sort((a, b) => a.order - b.order);
+        if (allInGroup.length === 0) continue;
+        const removedFirst = idSet.has(allInGroup[0].id);
+        const surviving = allInGroup.filter((r) => !idSet.has(r.id));
+        if (removedFirst && surviving.length > 0) {
+          const oldFirstParsed = parseIntervalTarget(allInGroup[0].target);
+          if (oldFirstParsed.kind === "interval" && oldFirstParsed.rounds !== null) {
+            const newFirst = surviving[0];
+            const newFirstParsed = parseIntervalTarget(newFirst.target);
+            const work = newFirstParsed.kind === "interval" ? newFirstParsed.workSec : oldFirstParsed.workSec;
+            const rest = newFirstParsed.kind === "interval" ? newFirstParsed.restSec : oldFirstParsed.restSec;
+            const newTarget = buildIntervalTarget(work, rest, oldFirstParsed.rounds);
+            working = working.map((r) => (r.id === newFirst.id ? { ...r, target: newTarget } : r));
+          }
+        }
+      }
+      return working.filter((r) => !idSet.has(r.id));
+    });
+  }
 
   function blockKeyOf(b: Block): string {
     return b.kind === "single" ? b.row.id : b.rows[0].id;
@@ -256,24 +295,30 @@ export function SessionEditor({
     const tgt = rows[targetIndex];
     if (!src || !tgt || src.id === tgt.id) { setDragPayload(null); return; }
     if (dragPayload.kind === "copy-sets") {
-      setSessionExerciseDetails(tgt.id, {
+      const patch = {
         sets: src.sets ?? 0,
         reps: src.reps ?? 0,
         loadValue: tgt.loadValue ?? 0,
         loadUnit: tgt.loadUnit ?? "KG",
         coachNote: tgt.coachNote ?? null,
-      }).then(afterMutation);
+      };
+      updateRowsLocal([tgt.id], (r) => ({ ...r, ...patch }));
+      setSessionExerciseDetails(tgt.id, patch).then(afterMutation);
     } else if (dragPayload.kind === "copy-weight") {
-      setSessionExerciseDetails(tgt.id, {
+      const patch = {
         sets: tgt.sets ?? 0,
         reps: tgt.reps ?? 0,
         loadValue: src.loadValue ?? 0,
         loadUnit: src.loadUnit ?? "KG",
         coachNote: tgt.coachNote ?? null,
-      }).then(afterMutation);
+      };
+      updateRowsLocal([tgt.id], (r) => ({ ...r, ...patch }));
+      setSessionExerciseDetails(tgt.id, patch).then(afterMutation);
     } else if (dragPayload.kind === "copy-timing") {
       // Copy target string (timing) from src to tgt
-      setSessionExerciseTarget(tgt.id, src.target ?? "").then(afterMutation);
+      const t = src.target ?? "";
+      updateRowsLocal([tgt.id], (r) => ({ ...r, target: t }));
+      setSessionExerciseTarget(tgt.id, t).then(afterMutation);
     }
     setDragPayload(null);
   }
@@ -335,18 +380,22 @@ export function SessionEditor({
 
   function pickColor(color: string) {
     if (!groupPopup) return;
+    const tempGroupId = `_optimistic_${Date.now()}`;
+    updateRowsLocal(groupPopup.ids, (r) => ({ ...r, groupId: tempGroupId, groupColor: color }));
     assignSupersetGroup(groupPopup.ids, color).then(afterMutation);
     setGroupPopup({ ...groupPopup, stage: "straightOrTimed" });
   }
 
   function deleteSelection() {
     if (!groupPopup) return;
+    applyLocalDelete(groupPopup.ids);
     deleteSessionExercises(groupPopup.ids).then(afterMutation);
     setGroupPopup(null);
   }
 
   function pickStraight() {
     if (!groupPopup) return;
+    updateRowsLocal(groupPopup.ids, (r) => ({ ...r, target: null }));
     clearGroupTargets(groupPopup.ids).then(afterMutation);
     setGroupPopup(null);
   }
@@ -370,6 +419,15 @@ export function SessionEditor({
   function saveGroupTimer() {
     if (!groupTimerForm) return;
     const { ids, type } = groupTimerForm;
+    const targetFor = (idxInIds: number): string | null => {
+      if (type === "circuit") return buildIntervalTarget(workSec, restSec, idxInIds === 0 ? rounds : undefined);
+      if (type === "interval") return buildIntervalTarget(workSec, restSec, rounds);
+      return buildEmomTarget(roundSec, reps === "" ? undefined : reps);
+    };
+    setRows((prev) => prev.map((r) => {
+      const idx = ids.indexOf(r.id);
+      return idx === -1 ? r : { ...r, target: targetFor(idx) };
+    }));
     const action =
       type === "circuit"
         ? applyGroupCircuit(ids, workSec, restSec, rounds)
@@ -405,6 +463,7 @@ export function SessionEditor({
     } else if (timerMode === "emom") {
       target = buildEmomTarget(roundSec, reps === "" ? undefined : reps);
     }
+    updateRowsLocal([timerRowId], (r) => ({ ...r, target }));
     setSessionExerciseTarget(timerRowId, target).then(afterMutation);
     setTimerRowId(null);
   }
@@ -434,8 +493,13 @@ export function SessionEditor({
     if (!headerEdit) return;
     if (headerEdit.kind === "circuit") {
       const target = buildIntervalTarget(headerEdit.workSec, headerEdit.restSec, headerEdit.currentRounds);
+      updateRowsLocal([headerEdit.firstRowId], (r) => ({ ...r, target }));
       setSessionExerciseTarget(headerEdit.firstRowId, target).then(afterMutation);
     } else {
+      const targets = new Map(
+        headerEdit.rows.map((r) => [r.id, buildEmomTarget(headerEdit.currentRoundSec, r.reps ?? undefined)])
+      );
+      setRows((prev) => prev.map((r) => (targets.has(r.id) ? { ...r, target: targets.get(r.id)! } : r)));
       Promise.all(
         headerEdit.rows.map((r) =>
           setSessionExerciseTarget(r.id, buildEmomTarget(headerEdit.currentRoundSec, r.reps ?? undefined))
@@ -485,6 +549,7 @@ export function SessionEditor({
       rowEdit.mode === "emomReps"
         ? buildEmomTarget(rowEdit.roundSecToKeep, repsVal === "" ? undefined : repsVal)
         : buildIntervalTarget(work, rest, rowEdit.preserveRounds);
+    updateRowsLocal([rowEdit.rowId], (r) => ({ ...r, target }));
     setSessionExerciseTarget(rowEdit.rowId, target).then(afterMutation);
     setRowEdit(null);
   }
@@ -504,17 +569,20 @@ export function SessionEditor({
 
   function saveDetailsEdit(sets: number | "", repsVal: number | "", loadValue: number | "", loadUnit: Units, coachNote: string) {
     if (!detailsEdit) return;
-    setSessionExerciseDetails(detailsEdit.rowId, {
+    const patch = {
       sets: sets === "" ? 0 : sets,
       reps: repsVal === "" ? 0 : repsVal,
       loadValue: loadValue === "" ? 0 : loadValue,
       loadUnit,
       coachNote: coachNote.trim() === "" ? null : coachNote,
-    }).then(afterMutation);
+    };
+    updateRowsLocal([detailsEdit.rowId], (r) => ({ ...r, ...patch }));
+    setSessionExerciseDetails(detailsEdit.rowId, patch).then(afterMutation);
     setDetailsEdit(null);
   }
 
   function deleteOne(id: string) {
+    applyLocalDelete([id]);
     deleteSessionExercises([id]).then(afterMutation);
   }
 
