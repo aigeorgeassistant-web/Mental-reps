@@ -3,6 +3,7 @@
 // monthCursor lifted so left + right panels stay in sync.
 // Handles both client sessions (pre-loaded) and template sessions (fetched on demand).
 // Optimistic exercise add: appends a fake row immediately on click, server catches up.
+// Client sessions are also fetched via API on click so loggedSets are included.
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -23,8 +24,11 @@ type ClientWithPrograms = Client & {
   })[];
 };
 
+type LoggedSetData = { setIndex: number; weight: number | null; reps: number | null; notes: string | null };
+
 type FullSession = Session & {
-  sessionExercises: (SessionExercise & { exercise: Exercise })[];
+  sessionExercises: (SessionExercise & { exercise: Exercise; loggedSets?: LoggedSetData[] })[];
+  checkIn?: { sleep: number | null; mood: number | null; hydration: number | null; stress: number | null } | null;
 };
 
 type OptimisticRow = SessionExercise & { exercise: Exercise; _optimistic: true };
@@ -41,13 +45,15 @@ export function ProgramBuilder({
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   const [selectedTemplateSession, setSelectedTemplateSession] = useState<FullSession | null>(null);
+  // Fetched full session for client sessions (includes loggedSets)
+  const [fetchedClientSession, setFetchedClientSession] = useState<FullSession | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [monthCursor, setMonthCursor] = useState<Date>(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
+  // Date keys that have logged sets — used to paint calendar chips green
+  const [loggedDateKeys, setLoggedDateKeys] = useState<Set<string>>(new Set());
 
-  // Optimistic rows keyed by sessionId → { rows, expectedCount }
-  // expectedCount = how many rows we expect after the server saves
   const [optimisticState, setOptimisticState] = useState<
     Record<string, { rows: OptimisticRow[]; expectedCount: number }>
   >({});
@@ -56,10 +62,33 @@ export function ProgramBuilder({
   const router = useRouter();
 
   const program = client.programs[0];
-  const selectedClientSession = program?.sessions.find((s) => s.id === selectedSessionId) ?? null;
-  const sessionForEditor: FullSession | null = selectedClientSession ?? selectedTemplateSession;
 
-  // When server data catches up (real row count >= expectedCount), clear optimistic rows
+  // The session shown in the center panel — prefer fetched (has loggedSets) over pre-loaded
+  const selectedClientSession = program?.sessions.find((s) => s.id === selectedSessionId) ?? null;
+  const sessionForEditor: FullSession | null =
+    fetchedClientSession ?? selectedClientSession ?? selectedTemplateSession;
+
+  // Fetch logged date keys whenever month changes
+  useEffect(() => {
+    if (!client.id) return;
+    const monthStr = ;
+    fetch()
+      .then((r) => r.json())
+      .then((data: Array<{ id: string; date: string; _hasLogs?: boolean }>) => {
+        const keys = new Set<string>();
+        for (const s of data) {
+          if (s._hasLogs && s.date) {
+            const d = new Date(s.date);
+            const key = ;
+            keys.add(key);
+          }
+        }
+        setLoggedDateKeys(keys);
+      })
+      .catch(() => {});
+  }, [client.id, monthCursor]);
+
+  // When server data catches up, clear optimistic rows
   useEffect(() => {
     if (!selectedClientSession) return;
     const state = optimisticState[selectedClientSession.id];
@@ -73,7 +102,7 @@ export function ProgramBuilder({
     }
   }, [selectedClientSession?.sessionExercises.length, selectedClientSession?.id]);
 
-  // Merge optimistic rows into the session before passing to SessionEditor
+  // Merge optimistic rows
   const sessionWithOptimistic: FullSession | null = sessionForEditor
     ? {
         ...sessionForEditor,
@@ -86,39 +115,65 @@ export function ProgramBuilder({
 
   const selectedExercise = exercises.find((e) => e.id === selectedExerciseId) ?? null;
 
-  // ─── Fetch template session from API ────────────────────────────────────────
+  // ─── Fetch any session (client or template) via API ──────────────────────────
 
-  async function fetchTemplateSession(sessionId: string) {
+  async function fetchSession(sessionId: string): Promise<FullSession | null> {
     try {
-      const res = await fetch(`/api/coach/sessions/${sessionId}`);
-      if (res.ok) {
-        const data: FullSession = await res.json();
-        setSelectedTemplateSession(data);
-        setOptimisticState((prev) => {
-          const next = { ...prev };
-          delete next[sessionId];
-          return next;
-        });
-      }
-    } catch {
-      // Silent fail
-    }
+      const res = await fetch();
+      if (res.ok) return res.json();
+    } catch {}
+    return null;
   }
 
   // ─── Session selection handlers ─────────────────────────────────────────────
 
-  function handleSelectSession(sessionId: string) {
+  async function handleSelectSession(sessionId: string) {
     setSelectedSessionId(sessionId);
     setSelectedTemplateSession(null);
+    setFetchedClientSession(null);
+    // Fetch full session with loggedSets
+    const full = await fetchSession(sessionId);
+    if (full) setFetchedClientSession(full);
   }
 
   async function handleSelectTemplateSession(sessionId: string) {
     setSelectedSessionId(null);
-    await fetchTemplateSession(sessionId);
+    setFetchedClientSession(null);
+    const data = await fetchSession(sessionId);
+    if (data) setSelectedTemplateSession(data);
   }
 
   function handleExitTemplateMode() {
     setSelectedTemplateSession(null);
+  }
+
+  // ─── After mutation: re-fetch current session ────────────────────────────────
+
+  async function handleAfterMutation() {
+    if (selectedTemplateSession) {
+      const data = await fetchSession(selectedTemplateSession.id);
+      if (data) setSelectedTemplateSession(data);
+    } else if (selectedSessionId) {
+      const data = await fetchSession(selectedSessionId);
+      if (data) setFetchedClientSession(data);
+      // Also refresh logged keys
+      const monthStr = ;
+      fetch()
+        .then((r) => r.json())
+        .then((sessions: Array<{ id: string; date: string; _hasLogs?: boolean }>) => {
+          const keys = new Set<string>();
+          for (const s of sessions) {
+            if (s._hasLogs && s.date) {
+              const d = new Date(s.date);
+              const key = ;
+              keys.add(key);
+            }
+          }
+          setLoggedDateKeys(keys);
+        })
+        .catch(() => {});
+    }
+    router.refresh();
   }
 
   // ─── Exercise add — optimistic ───────────────────────────────────────────────
@@ -139,7 +194,7 @@ export function ProgramBuilder({
     const newExpectedCount = serverCount + pendingCount + 1;
 
     const optimisticRow: OptimisticRow = {
-      id: `__optimistic_${Date.now()}_${Math.random()}`,
+      id: ,
       sessionId: targetSessionId,
       exerciseId,
       exercise,
@@ -172,7 +227,12 @@ export function ProgramBuilder({
     startTransition(async () => {
       await addExerciseToSession(targetSessionId, exerciseId);
       if (isTemplateSession && selectedTemplateSession) {
-        await fetchTemplateSession(selectedTemplateSession.id);
+        const data = await fetchSession(selectedTemplateSession.id);
+        if (data) setSelectedTemplateSession(data);
+      } else if (selectedSessionId) {
+        const data = await fetchSession(selectedSessionId);
+        if (data) setFetchedClientSession(data);
+        router.refresh();
       } else {
         router.refresh();
       }
@@ -185,8 +245,6 @@ export function ProgramBuilder({
   function handleOpenAddExercise(name: string, onCreated: (ex: Exercise) => void) {
     setPasteNewExerciseName(name);
     setPasteOnCreated(() => onCreated);
-    // Switch left panel to add exercise tab — just call handleSelectExercise after creation
-    // The left panel AddExerciseForm will surface with the name pre-filled via BuilderLeftPanel prop
   }
 
   // ─── Logout ──────────────────────────────────────────────────────────────────
@@ -208,6 +266,7 @@ export function ProgramBuilder({
         exercises={exercises}
         monthCursor={monthCursor}
         setMonthCursor={setMonthCursor}
+        loggedDateKeys={loggedDateKeys}
         onSelectSession={handleSelectSession}
         onSelectExercise={handleSelectExercise}
         onPreviewExercise={setSelectedExerciseId}
@@ -220,12 +279,8 @@ export function ProgramBuilder({
           session={sessionWithOptimistic}
           exercises={exercises}
           onSelectExerciseDetail={setSelectedExerciseId}
-          isTemplateSession={selectedClientSession === null && selectedTemplateSession !== null}
-          onAfterMutation={
-            selectedTemplateSession
-              ? () => fetchTemplateSession(selectedTemplateSession.id)
-              : undefined
-          }
+          isTemplateSession={selectedClientSession === null && fetchedClientSession === null && selectedTemplateSession !== null}
+          onAfterMutation={handleAfterMutation}
           onOpenAddExercise={handleOpenAddExercise}
         />
       ) : (
@@ -262,4 +317,3 @@ export function ProgramBuilder({
     </div>
   );
 }
-
