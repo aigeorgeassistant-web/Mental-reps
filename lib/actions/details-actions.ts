@@ -4,6 +4,7 @@
 
 import { db } from "../db";
 import type { Units } from "@prisma/client";
+import { requireOwnedSessionExercises } from "./ownership";
 
 export async function setSessionExerciseDetails(
   sessionExerciseId: string,
@@ -15,6 +16,9 @@ export async function setSessionExerciseDetails(
     coachNote: string | null;
   }
 ) {
+  const coach = await requireOwnedSessionExercises([sessionExerciseId]);
+  if (!coach) return;
+
   await db.sessionExercise.update({
     where: { id: sessionExerciseId },
     data: details,
