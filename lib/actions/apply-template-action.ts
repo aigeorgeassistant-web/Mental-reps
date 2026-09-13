@@ -161,7 +161,7 @@ export async function applyTemplateToClient(
     // independent), then all their exercises in a single batched insert
     // instead of one sequential create per exercise.
     const newSessions = await Promise.all(
-      template.sessions.map((src, i) => {
+      template.sessions.map((src, i: number) => {
         const [yr, mo, dy] = scheduledDates[i].split("-").map(Number);
         return db.session.create({
           data: {
@@ -175,7 +175,7 @@ export async function applyTemplateToClient(
       })
     );
 
-    const newSessionIdFor = new Map(template.sessions.map((src, i) => [src.id, newSessions[i].id]));
+    const newSessionIdFor = new Map(template.sessions.map((src, i: number) => [src.id, newSessions[i].id]));
 
     const exerciseRows = template.sessions.flatMap((src) =>
       src.sessionExercises.map((se) => ({
