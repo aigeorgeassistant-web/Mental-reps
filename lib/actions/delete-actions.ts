@@ -10,8 +10,12 @@
 
 import { db } from "../db";
 import { parseIntervalTarget, buildIntervalTarget } from "../timerNotation";
+import { requireOwnedSessionExercises } from "./ownership";
 
 export async function deleteSessionExercises(ids: string[]) {
+  const coach = await requireOwnedSessionExercises(ids);
+  if (!coach) return;
+
   const idSet = new Set(ids);
   const rows = await db.sessionExercise.findMany({ where: { id: { in: ids } } });
   const groupIds = [...new Set(rows.map((r) => r.groupId).filter((g): g is string => !!g))];
