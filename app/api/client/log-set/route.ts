@@ -32,20 +32,20 @@ async function recomputeBest(
   exerciseId: string,
   lowerIsBetter: boolean
 ): Promise<{ loggedSetId: string; bestWeight: number | null; bestReps: number | null; bestE1rm: number | null } | null> {
-  const sets = await db.loggedSet.findMany({
+  type PrCandidate = { id: string; weight: number | null; reps: number | null };
+  const sets: PrCandidate[] = await db.loggedSet.findMany({
     where: { clientId, exerciseId, weight: { not: null } },
     select: { id: true, weight: true, reps: true },
   });
   if (sets.length === 0) return null;
 
   if (lowerIsBetter) {
-    const best = sets.reduce((a, b) => ((b.weight ?? Infinity) < (a.weight ?? Infinity) ? b : a));
+    const best = sets.reduce((a: PrCandidate, b: PrCandidate) => ((b.weight ?? Infinity) < (a.weight ?? Infinity) ? b : a));
     return { loggedSetId: best.id, bestWeight: best.weight, bestReps: best.reps, bestE1rm: null };
   }
 
-  const valueOf = (s: { weight: number | null; reps: number | null }) =>
-    s.reps ? epley(s.weight!, s.reps) : (s.weight ?? 0);
-  const best = sets.reduce((a, b) => (valueOf(b) > valueOf(a) ? b : a));
+  const valueOf = (s: PrCandidate) => (s.reps ? epley(s.weight!, s.reps) : (s.weight ?? 0));
+  const best = sets.reduce((a: PrCandidate, b: PrCandidate) => (valueOf(b) > valueOf(a) ? b : a));
   return { loggedSetId: best.id, bestWeight: best.weight, bestReps: best.reps, bestE1rm: valueOf(best) };
 }
 
@@ -57,7 +57,13 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { sessionExerciseId, sessionId, exerciseId, setIndex, weight, reps, notes } = body;
+    const sessionExerciseId: string | undefined = body.sessionExerciseId;
+    const sessionId: string | undefined = body.sessionId;
+    const exerciseId: string | undefined = body.exerciseId;
+    const setIndex: number | undefined = body.setIndex;
+    const weight: number | null | undefined = body.weight;
+    const reps: number | null | undefined = body.reps;
+    const notes: string | null | undefined = body.notes;
 
     if (!exerciseId || setIndex === undefined) {
       return NextResponse.json({ error: "exerciseId and setIndex required" }, { status: 400 });
