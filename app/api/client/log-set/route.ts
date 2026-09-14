@@ -198,3 +198,64 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Failed to log set" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const { role, client } = await getCurrentRole() as any;
+    if (role !== "client" || !client) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { sessionExerciseId, setIndex } = await req.json();
+    if (!sessionExerciseId || setIndex === undefined) {
+      return NextResponse.json({ error: "sessionExerciseId and setIndex required" }, { status: 400 });
+    }
+
+    // Verify ownership
+    const se = await db.sessionExercise.findFirst({
+      where: { id: sessionExerciseId },
+      include: { session: { include: { program: true } } },
+    });
+    if (!se || se.session.program.clientId !== client.id) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const exerciseId = se.exerciseId;
+
+    // Delete the logged set
+    await db.loggedSet.deleteMany({
+      where: { clientId: client.id, sessionExerciseId, setIndex },
+    });
+
+    // Recompute PR for this exercise
+    const remaining = await db.loggedSet.findMany({
+      where: { clientId: client.id, exerciseId },
+      orderBy: { date: "asc" },
+    });
+
+    if (remaining.length === 0) {
+      await db.exercisePr.delete({
+        where: { clientId_exerciseId: { clientId: client.id, exerciseId } },
+      }).catch(() => {});
+    } else {
+      const exercise = await db.exercise.findUnique({ where: { id: exerciseId } });
+      const lowerIsBetter = exercise?.lowerIsBetter ?? false;
+      let best = remaining[0];
+      for (const s of remaining) {
+        const e1rm = (w: number, r: number) => w * (1 + r / 30);
+        const isBetter = lowerIsBetter
+          ? (s.weight ?? Infinity) < (best.weight ?? Infinity)
+          : e1rm(s.weight ?? 0, s.reps ?? 0) > e1rm(best.weight ?? 0, best.reps ?? 0);
+        if (isBetter) best = s;
+      }
+      await db.exercisePr.upsert({
+        where: { clientId_exerciseId: { clientId: client.id, exerciseId } },
+        create: { clientId: client.id, exerciseId, bestWeight: best.weight, bestReps: best.reps, bestE1rm: best.weight ? best.weight * (1 + (best.reps ?? 0) / 30) : null, loggedSetId: best.id },
+        update: { bestWeight: best.weight, bestReps: best.reps, bestE1rm: best.weight ? best.weight * (1 + (best.reps ?? 0) / 30) : null, loggedSetId: best.id },
+      });
+    }
+
+    return NextResponse.json({ deleted: true });
+  } catch (err) {
+    console.error("log-set DELETE error", err);
+    return NextResponse.json({ error: "Failed to delete log" }, { status: 500 });
+  }
+}
