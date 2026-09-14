@@ -90,19 +90,7 @@ export function ProgramBuilder({
       .catch(() => {});
   }, [client.id, monthCursor]);
 
-  // Clear optimistic rows when server catches up
-  useEffect(() => {
-    if (!selectedClientSession) return;
-    const state = optimisticState[selectedClientSession.id];
-    if (!state) return;
-    if (selectedClientSession.sessionExercises.length >= state.expectedCount) {
-      setOptimisticState((prev) => {
-        const next = { ...prev };
-        delete next[selectedClientSession.id];
-        return next;
-      });
-    }
-  }, [selectedClientSession?.sessionExercises.length, selectedClientSession?.id]);
+  // Optimistic rows are cleared explicitly after server confirms — no useEffect needed.
 
   const sessionWithOptimistic: FullSession | null = sessionForEditor
     ? {
@@ -231,10 +219,16 @@ export function ProgramBuilder({
       await addExerciseToSession(targetSessionId, exerciseId);
       if (isTemplateSession && selectedTemplateSession) {
         const data = await fetchSession(selectedTemplateSession.id);
-        if (data) setSelectedTemplateSession(data);
+        if (data) {
+          setSelectedTemplateSession(data);
+          setOptimisticState((prev) => { const next = { ...prev }; delete next[targetSessionId]; return next; });
+        }
       } else if (selectedSessionId) {
         const data = await fetchSession(selectedSessionId);
-        if (data) setFetchedClientSession(data);
+        if (data) {
+          setFetchedClientSession(data);
+          setOptimisticState((prev) => { const next = { ...prev }; delete next[targetSessionId]; return next; });
+        }
         router.refresh();
       } else {
         router.refresh();
