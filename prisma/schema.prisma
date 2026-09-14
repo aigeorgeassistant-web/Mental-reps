@@ -46,6 +46,7 @@ model Coach {
 
   clients  Client[]
   programs Program[]
+  bundles  Bundle[]
 }
 
 // A coach's client. Notes are split per SPEC.md §5 — Health/mobility notes
@@ -70,6 +71,7 @@ model Client {
   templatePurchases TemplatePurchase[]
   checkIns          CheckIn[]
   exercisePrs       ExercisePr[]
+  bundlePurchases   BundlePurchase[]
 }
 
 // The shared exercise catalog.
@@ -103,11 +105,15 @@ model Program {
   currency    String?  @default("KWD")
   category    String?
   description String?
-  isPublished Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  isPublished     Boolean   @default(false)
+  discountFlat    Decimal?
+  discountPercent Decimal?
+  discountEndsAt  DateTime?
+  createdAt       DateTime  @default(now())
 
   sessions          Session[]
   templatePurchases TemplatePurchase[]
+  bundleItems       BundleItem[]
 }
 
 // One "day" within a Program.
@@ -227,6 +233,43 @@ model TemplatePurchase {
 // Post-workout check-in — one per session, optional.
 // sleep/mood/hydration/stress are 1-5 scales.
 // Future: AI reads this alongside LoggedSet data for recommendations.
+model Bundle {
+  id              String    @id @default(cuid())
+  coachId         String
+  coach           Coach     @relation(fields: [coachId], references: [id])
+  name            String
+  description     String?
+  currency        String    @default("KWD")
+  discountFlat    Decimal?
+  discountPercent Decimal?
+  discountEndsAt  DateTime?
+  createdAt       DateTime  @default(now())
+
+  items     BundleItem[]
+  purchases BundlePurchase[]
+}
+
+model BundleItem {
+  id         String  @id @default(cuid())
+  bundleId   String
+  bundle     Bundle  @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  templateId String
+  template   Program @relation(fields: [templateId], references: [id])
+
+  @@unique([bundleId, templateId])
+}
+
+model BundlePurchase {
+  id          String   @id @default(cuid())
+  bundleId    String
+  bundle      Bundle   @relation(fields: [bundleId], references: [id])
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id])
+  purchasedAt DateTime @default(now())
+  pricePaid   Decimal
+  currency    String
+}
+
 model CheckIn {
   id        String   @id @default(cuid())
   clientId  String
