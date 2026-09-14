@@ -4,6 +4,7 @@ import { getCurrentRole } from "@/lib/role";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { InviteButton } from "@/components/coach/InviteButton";
+import { CoachBottomMenu } from "@/components/coach/CoachBottomMenu";
 
 export default async function ClientsPage() {
   const { role, coach } = await getCurrentRole();
@@ -64,6 +65,8 @@ export default async function ClientsPage() {
           <p className="p-4 text-sm text-neutral-500">No clients yet.</p>
         )}
       </div>
+
+      <CoachBottomMenu links={[{ href: "/coach/templates", label: "🏷 Templates" }]} />
     </main>
   );
 }
@@ -71,3 +74,4 @@ export default async function ClientsPage() {
 function initials(name: string) {
   return name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 }
+
