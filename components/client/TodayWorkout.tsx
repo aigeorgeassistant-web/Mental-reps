@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Exercise, Session, SessionExercise, Units } from "@prisma/client";
 import { parseIntervalTarget, resolveGroupTarget } from "@/lib/timerNotation";
+import { SignOutButton } from "@/components/shared/SignOutButton";
 
 type Row = SessionExercise & { exercise: Exercise };
 type SessionWithRows = Session & { sessionExercises: Row[] };
@@ -396,11 +397,12 @@ function CalendarPopup({ sessionId, onClose }: { sessionId: string; onClose: () 
 
 // ─── Set row ──────────────────────────────────────────────────────────────────
 
-function SetRow({ s, i, row, sessionId, unit, onPicker, onChange, onUncheck }: {
+function SetRow({ s, i, row, sessionId, unit, onPicker, onChange, onUncheck, onRelog }: {
   s: SetState; i: number; row: Row; sessionId: string; unit: Units;
   onPicker: (field: "weight" | "reps") => void;
   onChange: (field: keyof SetState, value: any) => void;
   onUncheck: () => void;
+  onRelog: () => void;
 }) {
   return (
     <div style={{ marginBottom: 12 }}>
@@ -414,7 +416,7 @@ function SetRow({ s, i, row, sessionId, unit, onPicker, onChange, onUncheck }: {
           {s.reps || "reps"}
         </button>
         {/* Square checkmark — grey ✓ idle, green ✓ done */}
-        <button onClick={() => s.done ? onUncheck() : undefined} style={{ width: 42, height: 42, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 22, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: s.done ? "pointer" : "default" }}>✓</button>
+        <button onClick={() => s.done ? onUncheck() : (s.weight && s.reps ? onRelog() : undefined)} style={{ width: 42, height: 42, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 22, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: (s.done || (s.weight && s.reps)) ? "pointer" : "default" }}>✓</button>
       </div>
       {/* Note field */}
       <input
@@ -593,15 +595,15 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
       {picker && (
         <DrumPicker
           label={picker.field === "weight" ? `Weight (${unit.toLowerCase()})` : "Reps"}
-          values={picker.field === "weight" ? makeWeightValues(sets[picker.setIdx].weight) : makeRepValues(sets[picker.setIdx].reps)}
-          initial={picker.field === "weight" ? sets[picker.setIdx].weight : sets[picker.setIdx].reps}
+          values={picker.field === "weight" ? makeWeightValues(sets[picker.setIdx].weight ?? (picker.setIdx > 0 ? sets[picker.setIdx - 1].weight : null) ?? 0) : makeRepValues(sets[picker.setIdx].reps)}
+          initial={picker.field === "weight" ? (sets[picker.setIdx].weight ?? (picker.setIdx > 0 ? sets[picker.setIdx - 1].weight : null) ?? 0) : sets[picker.setIdx].reps}
           onConfirm={handlePickerConfirm}
           onClose={() => setPicker(null)}
         />
       )}
       {copyPrompt && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 90, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 0 120px" }} onClick={() => setCopyPrompt(null)}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 16, padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 340, boxShadow: "0 8px 32px rgba(0,0,0,.4)" }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 90, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setCopyPrompt(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--panel)", border: "1.5px solid var(--steel)", borderRadius: "16px 16px 0 0", padding: "16px 20px calc(16px + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 400, boxShadow: "0 -8px 32px rgba(0,0,0,.5)", marginBottom: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
               Apply {copyPrompt.field === "weight" ? `${copyPrompt.value}${unit.toLowerCase()}` : `${copyPrompt.value} reps`} to all sets?
             </div>
@@ -657,6 +659,8 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
                 onPicker={(field) => setPicker({ setIdx: i, field })}
                 onChange={(field, value) => setSets((prev) => prev.map((ss, idx) => idx === i ? { ...ss, [field]: value } : ss))}
                 onUncheck={() => doUnlog(i)}
+                onRelog={() => doLog(i, sets)}
+                onRelog={() => doLog(i, sets)}
               />
             ))}
           </div>
@@ -1014,6 +1018,10 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
                   >
                     <span>⏱</span> Rest Timer <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, color: restEnabled ? "var(--good)" : "var(--dim)" }}>{restEnabled ? "ON" : "OFF"}</span>
                   </button>
+                  <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
+                  <SignOutButton style={{ width: "100%", padding: "10px 16px", background: "transparent", border: "none", color: "var(--accent)", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit" }}>
+                    <span>↪</span> Sign Out
+                  </SignOutButton>
                 </div>
               )}
             </div>
@@ -1187,6 +1195,7 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
     </div>
   );
 }
+
 
 
 
