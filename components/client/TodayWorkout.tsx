@@ -769,7 +769,7 @@ type ExerciseHistory = {
   bestSet: { weight: number; reps: number; date: string } | null;
   sessions: SessionAgg[];
 };
-type MetricKey = "maxWeight" | "totalVolume" | "estimated1RM";
+type HistoryMetricKey = "maxWeight" | "totalVolume" | "estimated1RM";
 
 function epley(weight: number, reps: number): number {
   if (reps === 1) return weight;
@@ -837,7 +837,7 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
 }
 
 function ExerciseDetailPanel({ h }: { h: ExerciseHistory }) {
-  const [metric, setMetric] = useState<MetricKey>("maxWeight");
+  const [metric, setMetric] = useState<HistoryMetricKey>("maxWeight");
   const sessions = h.sessions;
   const values = sessions.map((s) => s[metric]);
   const latest = values.length ? values[values.length - 1] : null;
@@ -856,7 +856,7 @@ function ExerciseDetailPanel({ h }: { h: ExerciseHistory }) {
 
       {/* Metric tabs */}
       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-        {(["maxWeight", "totalVolume", "estimated1RM"] as MetricKey[]).map((m) => (
+        {(["maxWeight", "totalVolume", "estimated1RM"] as HistoryMetricKey[]).map((m) => (
           <button
             key={m}
             onClick={() => setMetric(m)}
@@ -1287,6 +1287,7 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
     </div>
   );
 }
+
 
 
 
