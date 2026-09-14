@@ -309,6 +309,12 @@ export function ProgramBuilder({
         >
           ← Clients
         </a>
+        <a
+          href="/coach/templates"
+          className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-xs font-medium text-neutral-600 shadow-sm hover:bg-neutral-50 transition-colors"
+        >
+          🏷 Templates
+        </a>
         <button
           onClick={handleLogout}
           disabled={loggingOut}
