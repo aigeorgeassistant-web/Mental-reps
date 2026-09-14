@@ -5,7 +5,6 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, Exercise, Program, Session, SessionExercise } from "@prisma/client";
 import { createSessionOnDate, moveSessionToDate, deleteSessionsByIds } from "@/lib/actions/session-actions";
-import { AddExerciseForm } from "@/components/coach/AddExerciseForm";
 import { TaxonomyFilter } from "@/components/coach/TaxonomyPicker";
 import { MUSCLE_TAXONOMY, EQUIPMENT_TAXONOMY } from "@/lib/taxonomy";
 import { copySessionToClient } from "@/lib/actions/copy-session-action";
@@ -26,7 +25,6 @@ type ClientWithPrograms = Client & {
 
 type ProgramWithSessions = ClientWithPrograms["programs"][number];
 type Tab = "week" | "month" | "exercises";
-type ExercisesView = "list" | "add";
 type TemplateModeState = { programId: string; name: string };
 
 export function BuilderLeftPanel({
@@ -42,6 +40,7 @@ export function BuilderLeftPanel({
   onPreviewExercise,
   onSelectTemplateSession,
   onExitTemplateMode,
+  onRequestAddExercise,
 }: {
   clientId: string;
   client: ClientWithPrograms;
@@ -55,9 +54,9 @@ export function BuilderLeftPanel({
   onPreviewExercise: (exerciseId: string) => void;
   onSelectTemplateSession: (sessionId: string) => void;
   onExitTemplateMode: () => void;
+  onRequestAddExercise: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("month");
-  const [exercisesView, setExercisesView] = useState<ExercisesView>("list");
   const [search, setSearch] = useState("");
   const [muscleFilter, setMuscleFilter] = useState<string[]>([]);
   const [equipFilter, setEquipFilter] = useState<string[]>([]);
@@ -233,7 +232,7 @@ export function BuilderLeftPanel({
       <div className="flex border-b text-sm">
         <TabButton label="Month" active={tab === "month"} onClick={() => { setTab("month"); exitDeleteMode(); }} />
         <TabButton label="Week" active={tab === "week"} onClick={() => { setTab("week"); exitDeleteMode(); }} />
-        <TabButton label="Exercises" active={tab === "exercises"} onClick={() => { setTab("exercises"); setExercisesView("list"); exitDeleteMode(); }} />
+        <TabButton label="Exercises" active={tab === "exercises"} onClick={() => { setTab("exercises"); exitDeleteMode(); }} />
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
@@ -307,11 +306,7 @@ export function BuilderLeftPanel({
           )
         )}
 
-        {tab === "exercises" && exercisesView === "add" && (
-          <AddExerciseForm onDone={() => setExercisesView("list")} />
-        )}
-
-        {tab === "exercises" && exercisesView === "list" && (
+        {tab === "exercises" && (
           <div>
             <div className="flex items-center gap-1 mb-2">
               <input
@@ -348,7 +343,7 @@ export function BuilderLeftPanel({
                 )}
               </div>
               <button
-                onClick={() => setExercisesView("add")}
+                onClick={() => onRequestAddExercise()}
                 className="shrink-0 rounded bg-neutral-800 text-white px-2 py-1 text-xs hover:bg-neutral-700"
               >
                 + Add
@@ -613,4 +608,5 @@ function buildMonthGrid(monthCursor: Date) {
   }
   return days;
 }
+
 
