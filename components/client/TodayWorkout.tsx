@@ -396,10 +396,11 @@ function CalendarPopup({ sessionId, onClose }: { sessionId: string; onClose: () 
 
 // ─── Set row ──────────────────────────────────────────────────────────────────
 
-function SetRow({ s, i, row, sessionId, unit, onPicker, onChange }: {
+function SetRow({ s, i, row, sessionId, unit, onPicker, onChange, onUncheck }: {
   s: SetState; i: number; row: Row; sessionId: string; unit: Units;
   onPicker: (field: "weight" | "reps") => void;
   onChange: (field: keyof SetState, value: any) => void;
+  onUncheck: () => void;
 }) {
   return (
     <div style={{ marginBottom: 12 }}>
@@ -413,7 +414,7 @@ function SetRow({ s, i, row, sessionId, unit, onPicker, onChange }: {
           {s.reps || "reps"}
         </button>
         {/* Square checkmark — grey ✓ idle, green ✓ done */}
-        <div style={{ width: 42, height: 42, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 22, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center" }}>✓</div>
+        <button onClick={() => s.done ? onUncheck() : undefined} style={{ width: 42, height: 42, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 22, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: s.done ? "pointer" : "default" }}>✓</button>
       </div>
       {/* Note field */}
       <input
@@ -523,6 +524,24 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
     } catch {
       setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: true } : ss));
       onSetDone?.();
+    }
+  }
+
+  async function doUnlog(idx: number) {
+    // Optimistically uncheck immediately
+    setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: false, isPr: false } : ss));
+    try {
+      await fetch("/api/client/log-set", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionExerciseId: row.id,
+          setIndex: idx,
+        }),
+      });
+    } catch {
+      // Revert on failure
+      setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: true } : ss));
     }
   }
 
@@ -833,9 +852,9 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
       </header>
 
       {restLeft !== null && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30, background: "var(--accent)", color: "#fff", textAlign: "center", fontFamily: "monospace", fontSize: 18, fontWeight: 700, letterSpacing: ".05em", padding: "10px 0 calc(10px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-          <span>Rest {restLeft}s</span>
-          <button onClick={() => { clearInterval(restRef.current!); setRestLeft(null); }} style={{ background: "rgba(255,255,255,.2)", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontFamily: "inherit" }}>Skip</button>
+        <div style={{ position: "fixed", bottom: "calc(16px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: 30, background: "rgba(99,130,201,0.12)", border: "1px solid rgba(99,130,201,0.3)", backdropFilter: "blur(8px)", borderRadius: 999, padding: "6px 16px", display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: "#3a5a9c", letterSpacing: ".04em" }}>⏱ {Math.floor(restLeft / 60)}:{String(restLeft % 60).padStart(2, "0")}</span>
+          <button onClick={() => { clearInterval(restRef.current!); setRestLeft(null); }} style={{ background: "rgba(99,130,201,0.15)", border: "none", color: "#3a5a9c", fontSize: 11, fontWeight: 700, borderRadius: 6, padding: "2px 8px", cursor: "pointer", fontFamily: "inherit" }}>Skip</button>
         </div>
       )}
 
@@ -985,5 +1004,6 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
     </div>
   );
 }
+
 
 
