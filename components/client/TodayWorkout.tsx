@@ -660,7 +660,6 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
                 onChange={(field, value) => setSets((prev) => prev.map((ss, idx) => idx === i ? { ...ss, [field]: value } : ss))}
                 onUncheck={() => doUnlog(i)}
                 onRelog={() => doLog(i, sets)}
-                onRelog={() => doLog(i, sets)}
               />
             ))}
           </div>
