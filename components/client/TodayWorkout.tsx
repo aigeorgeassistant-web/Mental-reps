@@ -847,9 +847,9 @@ function ExerciseDetailPanel({ h }: { h: ExerciseHistory }) {
   const unit = metric === "totalVolume" ? "kg vol" : "kg";
 
   return (
-    <div style={{ padding: "0 16px 16px" }}>
+    <div style={{ padding: "14px 16px 16px", borderTop: "1px solid var(--line)" }}>
       {h.bestSet && (
-        <div style={{ marginBottom: 12, fontSize: 12, color: "var(--good)", fontWeight: 700 }}>
+        <div style={{ marginBottom: 12, padding: "6px 10px", background: "rgba(84,193,122,.1)", border: "1px solid rgba(84,193,122,.35)", borderRadius: 8, fontSize: 12, color: "var(--good)", fontWeight: 700, display: "inline-block" }}>
           🏆 PR: {h.bestSet.weight}kg × {h.bestSet.reps} <span style={{ color: "var(--dim)", fontWeight: 400 }}>({formatDisplayDate(h.bestSet.date)})</span>
         </div>
       )}
@@ -860,7 +860,7 @@ function ExerciseDetailPanel({ h }: { h: ExerciseHistory }) {
           <button
             key={m}
             onClick={() => setMetric(m)}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${metric === m ? "var(--steel)" : "var(--line)"}`, background: metric === m ? "rgba(92,122,138,.18)" : "transparent", color: metric === m ? "var(--steel)" : "var(--dim)", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${metric === m ? "var(--steel)" : "var(--line)"}`, background: metric === m ? "rgba(92,122,138,.22)" : "var(--bg)", color: metric === m ? "var(--steel)" : "var(--dim)", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
           >
             {m === "maxWeight" ? "Max Wt" : m === "totalVolume" ? "Volume" : "1RM Est."}
           </button>
@@ -868,9 +868,9 @@ function ExerciseDetailPanel({ h }: { h: ExerciseHistory }) {
       </div>
 
       {sessions.length === 0 ? (
-        <div style={{ fontSize: 12, color: "var(--dim)", marginBottom: 12 }}>No logged sets yet.</div>
+        <div style={{ fontSize: 12, color: "var(--dim)", marginBottom: 12, padding: 12, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, textAlign: "center" }}>No logged sets yet.</div>
       ) : (
-        <>
+        <div style={{ background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 28, fontWeight: 900, fontFamily: "monospace", color: "var(--text)" }}>
               {latest !== null ? Math.round(latest) : "—"}
@@ -882,18 +882,16 @@ function ExerciseDetailPanel({ h }: { h: ExerciseHistory }) {
               </span>
             )}
           </div>
-          <div style={{ marginBottom: 14 }}>
-            <Sparkline values={values} color="#3a5a9c" />
-          </div>
-        </>
+          <Sparkline values={values} color="#6a94d4" />
+        </div>
       )}
 
       {recent.length > 0 && (
         <div>
           <div style={{ fontSize: 10, letterSpacing: ".1em", color: "var(--steel)", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Recent Sessions</div>
           {recent.map((s) => (
-            <div key={s.sessionId} style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 10, color: "var(--dim)", marginBottom: 3 }}>{formatDisplayDate(s.date)}</div>
+            <div key={s.sessionId} style={{ marginBottom: 8, padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 8 }}>
+              <div style={{ fontSize: 10, color: "var(--dim)", marginBottom: 4 }}>{formatDisplayDate(s.date)}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {s.sets.map((set, si) => (
                   <span key={si} style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, padding: "3px 8px", fontFamily: "monospace" }}>
@@ -940,8 +938,8 @@ function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClos
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "var(--bg)", display: "flex", flexDirection: "column" }}>
       {/* Header */}
-      <div style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 12 }}>
-        <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>←</button>
+      <div style={{ padding: "14px 14px 10px", background: "var(--panel)", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 12 }}>
+        <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--text)", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>←</button>
         <div>
           <div style={{ fontSize: 10, letterSpacing: ".14em", color: "var(--steel)", fontWeight: 600, textTransform: "uppercase" }}>Exercise History</div>
           <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text)" }}>Today&apos;s Session</div>
@@ -949,7 +947,7 @@ function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClos
       </div>
 
       {/* List */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "10px 10px 24px" }}>
         {todayExercises.length === 0 && (
           <div style={{ padding: 24, textAlign: "center", color: "var(--dim)", fontSize: 13 }}>No exercises in this session.</div>
         )}
@@ -958,7 +956,7 @@ function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClos
           const isOpen = expanded === row.exerciseId;
           const isLoading = loading[row.exerciseId];
           return (
-            <div key={row.exerciseId} style={{ borderBottom: "1px solid var(--line)" }}>
+            <div key={row.exerciseId} style={{ background: "var(--panel)", border: `1px solid ${isOpen ? "var(--steel)" : "var(--line)"}`, borderRadius: 12, marginBottom: 8, overflow: "hidden", transition: "border-color .2s" }}>
               {/* Exercise row */}
               <button
                 onClick={() => toggleExpand(row.exerciseId, row.exercise.name)}
@@ -1087,15 +1085,25 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
       <header style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--line)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 10 }}>
         <div style={{ fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--steel)", fontWeight: 600 }}>{date}</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 2 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-            {/* ··· menu — left of title */}
+          <h1 style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.01em", color: "var(--text)", margin: 0, flex: 1 }}>{session.dayLabel}</h1>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => setCheckinOpen(true)}
+              title="Session check-in — log how you feel to track performance trends"
+              style={{ height: 38, padding: "0 10px", borderRadius: 9, border: `1px solid ${checkinDone ? "var(--good)" : "var(--line)"}`, background: checkinDone ? "rgba(84,193,122,.12)" : "var(--panel)", color: checkinDone ? "var(--good)" : "var(--dim)", fontSize: 11, fontWeight: 700, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 5, cursor: "pointer", letterSpacing: ".04em" }}
+            >
+              <span style={{ fontSize: 13, letterSpacing: 0 }}>▁▃▅</span>
+              {checkinDone ? "Logged" : "Check-in"}
+            </button>
+            <button onClick={() => setCalOpen(true)} style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }} title="Calendar">📅</button>
+            {/* ··· menu — right side */}
             <div style={{ position: "relative" }}>
               <button
                 onClick={() => setMenuOpen((v) => !v)}
                 style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: menuOpen ? "var(--panel)" : "transparent", color: "var(--dim)", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", letterSpacing: ".08em" }}
               >···</button>
               {menuOpen && (
-                <div style={{ position: "absolute", top: 44, left: 0, zIndex: 40, background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 10, padding: "6px 0", minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,.4)" }}
+                <div style={{ position: "absolute", top: 44, right: 0, zIndex: 40, background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 10, padding: "6px 0", minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,.4)" }}
                   onClick={() => setMenuOpen(false)}>
                   <button
                     onClick={() => setHistoryOpen(true)}
@@ -1117,19 +1125,6 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
                 </div>
               )}
             </div>
-            <h1 style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.01em", color: "var(--text)", margin: 0, flex: 1 }}>{session.dayLabel}</h1>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={() => setCheckinOpen(true)}
-              title="Session check-in — log how you feel to track performance trends"
-              style={{ height: 38, padding: "0 10px", borderRadius: 9, border: `1px solid ${checkinDone ? "var(--good)" : "var(--line)"}`, background: checkinDone ? "rgba(84,193,122,.12)" : "var(--panel)", color: checkinDone ? "var(--good)" : "var(--dim)", fontSize: 11, fontWeight: 700, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 5, cursor: "pointer", letterSpacing: ".04em" }}
-            >
-              <span style={{ fontSize: 13, letterSpacing: 0 }}>▁▃▅</span>
-              {checkinDone ? "Logged" : "Check-in"}
-            </button>
-            <button onClick={() => setCalOpen(true)} style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }} title="Calendar">📅</button>
-            <a href="/client/dashboard" style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }} title="Overview">📊</a>
           </div>
         </div>
       </header>
@@ -1287,6 +1282,7 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
     </div>
   );
 }
+
 
 
 
