@@ -379,16 +379,33 @@ export function BuilderLeftPanel({
             {filteredExercises.length === 0 ? (
               <EmptyState text="No exercises match." />
             ) : (
-              filteredExercises.map((ex) => (
-                <div key={ex.id} className="flex items-center rounded hover:bg-neutral-100">
-                  <button onClick={() => onSelectExercise(ex.id)} className="flex-1 text-left px-2 py-2 text-sm">
-                    {ex.name}
-                  </button>
-                  <button onClick={() => onPreviewExercise(ex.id)} className="px-2 py-2 text-[11px] text-neutral-400 hover:text-neutral-700 underline">
-                    View
-                  </button>
-                </div>
-              ))
+              filteredExercises.map((ex) => {
+                const hasGif = !!ex.gifUrl;
+                return (
+                  <div key={ex.id} className="flex items-center rounded hover:bg-neutral-100 group">
+                    {/* GIF indicator dot — green = has GIF, grey = missing */}
+                    <button
+                      onClick={() => onPreviewExercise(ex.id)}
+                      title={hasGif ? "Has GIF" : "Missing GIF — click to add"}
+                      className="pl-2 pr-1 py-2 shrink-0 flex items-center"
+                    >
+                      <span
+                        className="block w-2 h-2 rounded-full border transition-colors"
+                        style={hasGif
+                          ? { background: "#16a34a", borderColor: "#16a34a" }
+                          : { background: "transparent", borderColor: "#d1d5db" }
+                        }
+                      />
+                    </button>
+                    <button onClick={() => onSelectExercise(ex.id)} className="flex-1 text-left px-1 py-2 text-sm truncate">
+                      {ex.name}
+                    </button>
+                    <button onClick={() => onPreviewExercise(ex.id)} className="px-2 py-2 text-[11px] text-neutral-400 hover:text-neutral-700 underline shrink-0">
+                      View
+                    </button>
+                  </div>
+                );
+              })
             )}
           </div>
         )}
