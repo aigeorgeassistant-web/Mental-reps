@@ -3,13 +3,12 @@
 // monthCursor lifted so left + right panels stay in sync.
 // Client sessions fetched via API on click so loggedSets are included.
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, Exercise, Program, Session, SessionExercise } from "@prisma/client";
 import { BuilderLeftPanel } from "./BuilderLeftPanel";
 import { SessionEditor } from "./SessionEditor";
 import { BuilderRightPanel } from "./BuilderRightPanel";
-import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
 import { authClient } from "@/lib/auth/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────────────────
@@ -28,8 +27,6 @@ type FullSession = Session & {
   sessionExercises: (SessionExercise & { exercise: Exercise; loggedSets?: LoggedSetData[] })[];
   checkIn?: { sleep: number | null; mood: number | null; hydration: number | null; stress: number | null } | null;
 };
-
-type OptimisticRow = SessionExercise & { exercise: Exercise; _optimistic: true };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────────────────
 
@@ -60,12 +57,10 @@ export function ProgramBuilder({
   );
   const [loggedDateKeys, setLoggedDateKeys] = useState<Set<string>>(new Set());
 
-  const [optimisticState, setOptimisticState] = useState<
-    Record<string, { rows: OptimisticRow[]; expectedCount: number }>
-  >({});
 
   const [, startTransition] = useTransition();
   const router = useRouter();
+  const sessionEditorAddRef = useRef<((exerciseId: string) => void) | null>(null);
 
   const program = client.programs[0];
   const selectedClientSession = program?.sessions.find((s) => s.id === selectedSessionId) ?? null;
@@ -90,17 +85,6 @@ export function ProgramBuilder({
       .catch(() => {});
   }, [client.id, monthCursor]);
 
-  // Optimistic rows are cleared explicitly after server confirms — no useEffect needed.
-
-  const sessionWithOptimistic: FullSession | null = sessionForEditor
-    ? {
-        ...sessionForEditor,
-        sessionExercises: [
-          ...sessionForEditor.sessionExercises,
-          ...(optimisticState[sessionForEditor.id]?.rows ?? []),
-        ],
-      }
-    : null;
 
   const selectedExercise = exercises.find((e) => e.id === selectedExerciseId) ?? null;
 
@@ -167,73 +151,15 @@ export function ProgramBuilder({
     }
   }
 
-  // ─── Exercise add — optimistic ─────────────────────────────────────────────────────────
+  // ─── Exercise add — delegated to SessionEditor ──────────────────────────────────────────
 
   function handleSelectExercise(exerciseId: string) {
-    const targetSessionId = selectedSessionId ?? selectedTemplateSession?.id ?? null;
-    const isTemplateSession = !selectedSessionId && !!selectedTemplateSession;
-    if (!targetSessionId) return;
-
-    const exercise = exercises.find((e) => e.id === exerciseId);
-    if (!exercise) return;
-
-    const currentSession = sessionForEditor;
-    const serverCount = currentSession?.sessionExercises.length ?? 0;
-    const currentOptimistic = optimisticState[targetSessionId];
-    const pendingCount = currentOptimistic?.rows.length ?? 0;
-    const order = serverCount + pendingCount;
-    const newExpectedCount = serverCount + pendingCount + 1;
-
-    const optimisticRow: OptimisticRow = {
-      id: "__optimistic_" + Date.now() + "_" + Math.random(),
-      sessionId: targetSessionId,
-      exerciseId,
-      exercise,
-      order,
-      sets: null,
-      reps: null,
-      setType: "FIXED_REPS",
-      loadType: "FIXED",
-      loadValue: null,
-      loadUnit: null,
-      coachNote: null,
-      target: null,
-      groupId: null,
-      groupColor: null,
-      isRandomizerSlot: false,
-      slotPoolExerciseIds: [],
-      rpeEnabled: false,
-      restSeconds: null,
-      _optimistic: true,
-    };
-
-    setOptimisticState((prev) => ({
-      ...prev,
-      [targetSessionId]: {
-        rows: [...(prev[targetSessionId]?.rows ?? []), optimisticRow],
-        expectedCount: newExpectedCount,
-      },
-    }));
-
-    startTransition(async () => {
-      await addExerciseToSession(targetSessionId, exerciseId);
-      if (isTemplateSession && selectedTemplateSession) {
-        const data = await fetchSession(selectedTemplateSession.id);
-        if (data) {
-          setSelectedTemplateSession(data);
-          setOptimisticState((prev) => { const next = { ...prev }; delete next[targetSessionId]; return next; });
-        }
-      } else if (selectedSessionId) {
-        const data = await fetchSession(selectedSessionId);
-        if (data) {
-          setFetchedClientSession(data);
-          setOptimisticState((prev) => { const next = { ...prev }; delete next[targetSessionId]; return next; });
-        }
-        router.refresh();
-      } else {
-        router.refresh();
-      }
-    });
+    // SessionEditor owns optimistic state. We just need to know which session is open.
+    // The actual server call + optimistic row management happens inside SessionEditor
+    // via the onAddExercise prop.
+    if (!sessionForEditor) return;
+    // Signal SessionEditor to add this exercise
+    sessionEditorAddRef.current?.(exerciseId);
   }
 
   const [, setPasteNewExerciseName] = useState<string | null>(null);
@@ -271,14 +197,15 @@ export function ProgramBuilder({
         onExitTemplateMode={handleExitTemplateMode}
       />
 
-      {sessionWithOptimistic ? (
+      {sessionForEditor ? (
         <SessionEditor
-          session={sessionWithOptimistic}
+          session={sessionForEditor}
           exercises={exercises}
           onSelectExerciseDetail={setSelectedExerciseId}
           isTemplateSession={selectedClientSession === null && fetchedClientSession === null && selectedTemplateSession !== null}
           onAfterMutation={handleAfterMutation}
           onOpenAddExercise={handleOpenAddExercise}
+          onAddExerciseRef={sessionEditorAddRef}
         />
       ) : (
         <div className="w-1/2 border-r p-4">
@@ -320,3 +247,4 @@ export function ProgramBuilder({
     </div>
   );
 }
+
