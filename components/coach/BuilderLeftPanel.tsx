@@ -380,7 +380,7 @@ export function BuilderLeftPanel({
               <EmptyState text="No exercises match." />
             ) : (
               filteredExercises.map((ex) => {
-                const hasGif = !!ex.gifUrl;
+                const hasGif = !!ex.gifUrl && ex.gifUrl.includes("media.mentalreps.work");
                 return (
                   <div key={ex.id} className="flex items-center rounded hover:bg-neutral-100 group">
                     {/* GIF indicator dot — green = has GIF, grey = missing */}
@@ -613,3 +613,4 @@ function buildMonthGrid(monthCursor: Date) {
   }
   return days;
 }
+
