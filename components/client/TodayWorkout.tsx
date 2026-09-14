@@ -754,24 +754,169 @@ function GroupCard({ label, color, children, openKey, activeKey, onToggle, previ
 
 // ─── History Overlay ──────────────────────────────────────────────────────────
 
-type HistoryEntry = { date: string; sets: { weight: number | null; reps: number | null }[] };
+type ApiSet = { id: string; displayDate: string; weight: number | null; reps: number | null; sessionId: string | null };
+type SessionAgg = {
+  sessionId: string;
+  date: string;
+  maxWeight: number;
+  totalVolume: number;
+  estimated1RM: number;
+  sets: { weight: number | null; reps: number | null }[];
+};
 type ExerciseHistory = {
   exerciseId: string;
   name: string;
   bestSet: { weight: number; reps: number; date: string } | null;
-  improvement: number | null; // % improvement first→best e1rm
-  recent: HistoryEntry[];
+  sessions: SessionAgg[];
 };
+type MetricKey = "maxWeight" | "totalVolume" | "estimated1RM";
+
+function epley(weight: number, reps: number): number {
+  if (reps === 1) return weight;
+  return weight * (1 + reps / 30);
+}
+
+function computeSessionAggregates(sets: ApiSet[]): SessionAgg[] {
+  const bySession: Record<string, ApiSet[]> = {};
+  for (const s of sets) {
+    const key = s.sessionId ?? s.id;
+    if (!bySession[key]) bySession[key] = [];
+    bySession[key].push(s);
+  }
+  const groups: SessionAgg[] = Object.entries(bySession).map(([sessionId, group]) => {
+    const validSets = group.filter((s) => s.weight != null && s.reps != null);
+    const maxWeight = validSets.length ? Math.max(...validSets.map((s) => s.weight!)) : 0;
+    const totalVolume = validSets.reduce((sum, s) => sum + s.weight! * s.reps!, 0);
+    const estimated1RM = validSets.length ? Math.max(...validSets.map((s) => epley(s.weight!, s.reps!))) : 0;
+    return {
+      sessionId,
+      date: group[0].displayDate,
+      maxWeight,
+      totalVolume,
+      estimated1RM,
+      sets: group.map((s) => ({ weight: s.weight, reps: s.reps })),
+    };
+  });
+  groups.sort((a, b) => a.date.localeCompare(b.date));
+  return groups;
+}
+
+function formatDisplayDate(dateStr: string): string {
+  try {
+    const d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  } catch {
+    return dateStr;
+  }
+}
+
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) {
+    return (
+      <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "var(--dim)" }}>
+        Not enough sessions yet
+      </div>
+    );
+  }
+  const w = 280, h = 40, pad = 4;
+  const min = Math.min(...values);
+  const max = Math.max(...values) || 1;
+  const range = max - min || 1;
+  const pts = values
+    .map((v, i) => {
+      const x = pad + (i / (values.length - 1)) * (w - pad * 2);
+      const y = h - pad - ((v - min) / range) * (h - pad * 2);
+      return `${x},${y}`;
+    })
+    .join(" ");
+  return (
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ExerciseDetailPanel({ h }: { h: ExerciseHistory }) {
+  const [metric, setMetric] = useState<MetricKey>("maxWeight");
+  const sessions = h.sessions;
+  const values = sessions.map((s) => s[metric]);
+  const latest = values.length ? values[values.length - 1] : null;
+  const first = values.length ? values[0] : null;
+  const delta = latest !== null && first !== null && first > 0 ? Math.round(((latest - first) / first) * 100) : null;
+  const recent = [...sessions].slice(-5).reverse();
+  const unit = metric === "totalVolume" ? "kg vol" : "kg";
+
+  return (
+    <div style={{ padding: "0 16px 16px" }}>
+      {h.bestSet && (
+        <div style={{ marginBottom: 12, fontSize: 12, color: "var(--good)", fontWeight: 700 }}>
+          🏆 PR: {h.bestSet.weight}kg × {h.bestSet.reps} <span style={{ color: "var(--dim)", fontWeight: 400 }}>({formatDisplayDate(h.bestSet.date)})</span>
+        </div>
+      )}
+
+      {/* Metric tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {(["maxWeight", "totalVolume", "estimated1RM"] as MetricKey[]).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMetric(m)}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${metric === m ? "var(--steel)" : "var(--line)"}`, background: metric === m ? "rgba(92,122,138,.18)" : "transparent", color: metric === m ? "var(--steel)" : "var(--dim)", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+          >
+            {m === "maxWeight" ? "Max Wt" : m === "totalVolume" ? "Volume" : "1RM Est."}
+          </button>
+        ))}
+      </div>
+
+      {sessions.length === 0 ? (
+        <div style={{ fontSize: 12, color: "var(--dim)", marginBottom: 12 }}>No logged sets yet.</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 28, fontWeight: 900, fontFamily: "monospace", color: "var(--text)" }}>
+              {latest !== null ? Math.round(latest) : "—"}
+              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--dim)" }}> {unit}</span>
+            </span>
+            {delta !== null && sessions.length >= 2 && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: delta >= 0 ? "var(--good)" : "var(--accent)" }}>
+                {delta >= 0 ? "+" : ""}{delta}% from first
+              </span>
+            )}
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <Sparkline values={values} color="#3a5a9c" />
+          </div>
+        </>
+      )}
+
+      {recent.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, letterSpacing: ".1em", color: "var(--steel)", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Recent Sessions</div>
+          {recent.map((s) => (
+            <div key={s.sessionId} style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: "var(--dim)", marginBottom: 3 }}>{formatDisplayDate(s.date)}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {s.sets.map((set, si) => (
+                  <span key={si} style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, padding: "3px 8px", fontFamily: "monospace" }}>
+                    {set.weight ?? "—"}×{set.reps ?? "—"}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClose: () => void }) {
   const todayRows = [...session.sessionExercises].sort((a, b) => a.order - b.order);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [data, setData] = useState<Record<string, ExerciseHistory>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
-  const [showAll, setShowAll] = useState(false);
 
   // Dedupe today's exercises by exerciseId
-  const todayExercises = todayRows.filter((r, i, arr) => arr.findIndex(x => x.exerciseId === r.exerciseId) === i);
+  const todayExercises = todayRows.filter((r, i, arr) => arr.findIndex((x) => x.exerciseId === r.exerciseId) === i);
 
   async function loadHistory(exerciseId: string, name: string) {
     if (data[exerciseId] || loading[exerciseId]) return;
@@ -779,32 +924,9 @@ function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClos
     try {
       const res = await fetch(`/api/client/exercises/${exerciseId}/history`);
       const d = await res.json();
-      // Compute improvement: first session e1rm → best e1rm
-      const sets = d.sets ?? [];
-      const e1rm = (w: number, r: number) => w * (1 + r / 30);
-      let firstE1rm: number | null = null;
-      let bestE1rm: number | null = null;
-      // Group sets by sessionId to get first and best session
-      const bySession: Record<string, typeof sets> = {};
-      for (const s of sets) {
-        const key = s.sessionId ?? "unknown";
-        if (!bySession[key]) bySession[key] = [];
-        bySession[key].push(s);
-      }
-      const sessionKeys = Object.keys(bySession);
-      if (sessionKeys.length >= 2) {
-        const firstSets = bySession[sessionKeys[0]];
-        const firstBest = firstSets.reduce((b: any, s: any) => !b || (s.weight && s.reps && e1rm(s.weight, s.reps) > e1rm(b.weight ?? 0, b.reps ?? 0)) ? s : b, null);
-        if (firstBest?.weight && firstBest?.reps) firstE1rm = e1rm(firstBest.weight, firstBest.reps);
-        if (d.bestSet?.weight && d.bestSet?.reps) bestE1rm = e1rm(d.bestSet.weight, d.bestSet.reps);
-      }
-      const improvement = firstE1rm && bestE1rm && firstE1rm > 0 ? Math.round(((bestE1rm - firstE1rm) / firstE1rm) * 100) : null;
-      // Build recent sessions (last 5)
-      const recent: HistoryEntry[] = sessionKeys.slice(-5).reverse().map((key) => ({
-        date: bySession[key][0]?.sessionId ?? key,
-        sets: bySession[key].map((s: any) => ({ weight: s.weight, reps: s.reps })),
-      }));
-      setData((p) => ({ ...p, [exerciseId]: { exerciseId, name, bestSet: d.bestSet, improvement, recent } }));
+      const rawSets: ApiSet[] = d.sets ?? [];
+      const sessions = computeSessionAggregates(rawSets);
+      setData((p) => ({ ...p, [exerciseId]: { exerciseId, name, bestSet: d.bestSet ?? null, sessions } }));
     } catch {}
     setLoading((p) => ({ ...p, [exerciseId]: false }));
   }
@@ -814,10 +936,6 @@ function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClos
     setExpanded(exerciseId);
     loadHistory(exerciseId, name);
   }
-
-  const displayList = showAll
-    ? todayExercises // for now just today — "All" to be added later
-    : todayExercises;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "var(--bg)", display: "flex", flexDirection: "column" }}>
@@ -832,10 +950,10 @@ function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClos
 
       {/* List */}
       <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
-        {displayList.length === 0 && (
+        {todayExercises.length === 0 && (
           <div style={{ padding: 24, textAlign: "center", color: "var(--dim)", fontSize: 13 }}>No exercises in this session.</div>
         )}
-        {displayList.map((row) => {
+        {todayExercises.map((row) => {
           const h = data[row.exerciseId];
           const isOpen = expanded === row.exerciseId;
           const isLoading = loading[row.exerciseId];
@@ -849,24 +967,18 @@ function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClos
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 700 }}>{row.exercise.name}</div>
                   {h && (
-                    <div style={{ display: "flex", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
-                      {h.bestSet && (
+                    <div style={{ marginTop: 3 }}>
+                      {h.bestSet ? (
                         <span style={{ fontSize: 11, color: "var(--good)", fontWeight: 700 }}>
                           🏆 {h.bestSet.weight}kg × {h.bestSet.reps}
                         </span>
-                      )}
-                      {h.improvement !== null && (
-                        <span style={{ fontSize: 11, color: h.improvement >= 0 ? "var(--good)" : "var(--accent)", fontWeight: 700 }}>
-                          {h.improvement >= 0 ? "+" : ""}{h.improvement}% from start
-                        </span>
-                      )}
-                      {!h.bestSet && (
+                      ) : (
                         <span style={{ fontSize: 11, color: "var(--dim)" }}>No history yet</span>
                       )}
                     </div>
                   )}
                   {!h && !isLoading && (
-                    <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 3 }}>Tap to load history</div>
+                    <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 3 }}>Tap for details</div>
                   )}
                   {isLoading && (
                     <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 3 }}>Loading…</div>
@@ -875,27 +987,8 @@ function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClos
                 <span style={{ fontSize: 16, color: "var(--dim)", transition: "transform .2s", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
               </button>
 
-              {/* Expanded detail */}
-              {isOpen && h && h.recent.length > 0 && (
-                <div style={{ padding: "0 16px 14px" }}>
-                  <div style={{ fontSize: 10, letterSpacing: ".1em", color: "var(--steel)", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Recent Sessions</div>
-                  {h.recent.map((entry, ei) => (
-                    <div key={ei} style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 10, color: "var(--dim)", marginBottom: 3, fontFamily: "monospace" }}>{entry.date}</div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {entry.sets.map((s, si) => (
-                          <span key={si} style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, padding: "3px 8px", fontFamily: "monospace" }}>
-                            {s.weight ?? "—"}×{s.reps ?? "—"}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {isOpen && h && h.recent.length === 0 && (
-                <div style={{ padding: "0 16px 14px", fontSize: 12, color: "var(--dim)" }}>No logged sets yet.</div>
-              )}
+              {/* Expanded detail — PR, metric tabs, sparkline, recent sessions */}
+              {isOpen && h && <ExerciseDetailPanel h={h} />}
             </div>
           );
         })}
@@ -1194,6 +1287,7 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
     </div>
   );
 }
+
 
 
 
