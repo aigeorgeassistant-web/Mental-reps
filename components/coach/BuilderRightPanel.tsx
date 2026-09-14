@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import type { Exercise } from "@prisma/client";
 import { TaxonomyPicker } from "@/components/coach/TaxonomyPicker";
 import { MUSCLE_TAXONOMY, EQUIPMENT_TAXONOMY } from "@/lib/taxonomy";
+import { AddExerciseForm } from "@/components/coach/AddExerciseForm";
 import { copySessionToClient } from "@/lib/actions/copy-session-action";
 import {
   previewTemplateApplication,
@@ -695,10 +696,14 @@ function TemplatesView({
   currentClientId,
   clientName,
   onSelectTemplateSession,
+  showAddExercise,
+  onDoneAddExercise,
 }: {
   currentClientId: string;
   clientName: string;
   onSelectTemplateSession: (sessionId: string) => void;
+  showAddExercise?: boolean;
+  onDoneAddExercise?: () => void;
 }) {
   const router = useRouter();
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
@@ -852,18 +857,26 @@ export function BuilderRightPanel({
   clientName,
   monthCursor,
   onSelectTemplateSession,
+  showAddExercise,
+  onDoneAddExercise,
 }: {
   exercise: Exercise | null;
   currentClientId: string;
   clientName: string;
   monthCursor: Date;
   onSelectTemplateSession: (sessionId: string) => void;
+  showAddExercise?: boolean;
+  onDoneAddExercise?: () => void;
 }) {
   const [tab, setTab] = useState<RightPanelTab>("detail");
 
   useEffect(() => {
     if (exercise) setTab("detail");
   }, [exercise?.id]);
+
+  useEffect(() => {
+    if (showAddExercise) setTab("detail");
+  }, [showAddExercise]);
 
   return (
     <div className="w-1/4 border-l flex flex-col">
@@ -873,7 +886,11 @@ export function BuilderRightPanel({
         <TabBtn label="Templates" active={tab === "templates"} onClick={() => setTab("templates")} />
       </div>
 
-      {tab === "detail" && <DetailView exercise={exercise} currentClientId={currentClientId} />}
+      {tab === "detail" && (
+        showAddExercise
+          ? <div className="p-3 overflow-y-auto flex-1"><AddExerciseForm onDone={() => { onDoneAddExercise?.(); }} /></div>
+          : <DetailView exercise={exercise} currentClientId={currentClientId} />
+      )}
       {tab === "browse" && (
         <BrowseClientsView currentClientId={currentClientId} monthCursor={monthCursor} />
       )}
@@ -887,3 +904,4 @@ export function BuilderRightPanel({
     </div>
   );
 }
+
