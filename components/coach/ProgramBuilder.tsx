@@ -49,6 +49,7 @@ export function ProgramBuilder({
 }) {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
+  const [showAddExercise, setShowAddExercise] = useState(false);
   const [selectedTemplateSession, setSelectedTemplateSession] = useState<FullSession | null>(null);
   const [fetchedClientSession, setFetchedClientSession] = useState<FullSession | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -193,6 +194,7 @@ export function ProgramBuilder({
         onSelectSession={handleSelectSession}
         onSelectExercise={handleSelectExercise}
         onPreviewExercise={setSelectedExerciseId}
+        onRequestAddExercise={() => { setShowAddExercise(true); setSelectedExerciseId(null); }}
         onSelectTemplateSession={handleSelectTemplateSession}
         onExitTemplateMode={handleExitTemplateMode}
       />
@@ -217,6 +219,8 @@ export function ProgramBuilder({
 
       <BuilderRightPanel
         exercise={selectedExercise}
+        showAddExercise={showAddExercise}
+        onDoneAddExercise={() => setShowAddExercise(false)}
         currentClientId={client.id}
         clientName={client.name}
         monthCursor={monthCursor}
