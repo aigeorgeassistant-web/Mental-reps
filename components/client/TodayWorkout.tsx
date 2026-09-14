@@ -656,6 +656,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
                 key={i} s={s} i={i} row={row} sessionId={sessionId} unit={unit}
                 onPicker={(field) => setPicker({ setIdx: i, field })}
                 onChange={(field, value) => setSets((prev) => prev.map((ss, idx) => idx === i ? { ...ss, [field]: value } : ss))}
+                onUncheck={() => doUnlog(i)}
               />
             ))}
           </div>
