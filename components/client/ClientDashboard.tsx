@@ -6,6 +6,7 @@
 // Right:  History tab (exercise progress graphs) | Templates tab
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { SignOutButton } from "@/components/shared/SignOutButton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -570,6 +571,7 @@ export function ClientDashboard({ clientName }: { clientName: string }) {
   const [selectedSession, setSelectedSession] = useState<SessionRow | null>(null);
   const [selectedExercise, setSelectedExercise] = useState<ExerciseRow | null>(null);
   const [rightTab, setRightTab] = useState<"templates">("templates");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const monthStr = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
 
@@ -615,6 +617,22 @@ export function ClientDashboard({ clientName }: { clientName: string }) {
       `}</style>
 
       <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+
+        {/* ··· menu — top right, fixed */}
+        <div style={{ position: "fixed", top: 14, right: 14, zIndex: 50 }}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            style={{ width: 36, height: 36, borderRadius: 9, border: "1px solid var(--line)", background: menuOpen ? "var(--panel)" : "rgba(28,31,36,.85)", color: "var(--dim)", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", letterSpacing: ".08em" }}
+          >···</button>
+          {menuOpen && (
+            <div style={{ position: "absolute", top: 42, right: 0, background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 10, padding: "6px 0", minWidth: 160, boxShadow: "0 8px 24px rgba(0,0,0,.4)" }}
+              onClick={() => setMenuOpen(false)}>
+              <SignOutButton style={{ width: "100%", padding: "10px 16px", background: "transparent", border: "none", color: "#ff4b3e", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit" }}>
+                <span>↪</span> Sign Out
+              </SignOutButton>
+            </div>
+          )}
+        </div>
 
         {/* Left panel — calendar */}
         <div style={{ width: 260, borderRight: "1px solid var(--line)", display: "flex", flexDirection: "column", flexShrink: 0 }}>
@@ -676,4 +694,5 @@ export function ClientDashboard({ clientName }: { clientName: string }) {
     </>
   );
 }
+
 
