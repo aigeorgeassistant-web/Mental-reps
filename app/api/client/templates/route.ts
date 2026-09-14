@@ -1,7 +1,7 @@
 // app/api/client/templates/route.ts
 // GET /api/client/templates
-// Returns published templates available to this client (purchased or free)
-// plus any templates manually unlocked by the coach for this client.
+// Returns templates visible to this client.
+// Rule: price set = visible in store. No price = private/coach-only.
 
 import { NextResponse } from "next/server";
 import { getCurrentRole } from "@/lib/role";
@@ -11,11 +11,11 @@ export async function GET() {
   const { role, client } = await getCurrentRole() as any;
   if (role !== "client" || !client) return NextResponse.json([], { status: 401 });
 
-  // Published templates from their coach
+  // Visible = has a price set (price set = published, per design decision)
   const templates = await db.program.findMany({
     where: {
       isTemplate: true,
-      isPublished: true,
+      price: { not: null },
       coachId: client.coachId,
     },
     include: {
