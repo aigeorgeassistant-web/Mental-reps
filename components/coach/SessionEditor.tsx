@@ -17,7 +17,7 @@
 //   deleteSessionExercises, which protects a Circuit's round count if the
 //   row holding it is removed.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Exercise, Session, SessionExercise, Units } from "@prisma/client";
 import { reorderSessionExercises } from "@/lib/actions/reorder-actions";
 import {
@@ -37,10 +37,12 @@ import {
   buildEmomTarget,
 } from "@/lib/timerNotation";
 import { PasteImportModal } from "@/components/coach/PasteImportModal";
+import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
 
 type LoggedSetData = { setIndex: number; weight: number | null; reps: number | null; notes: string | null };
 type CheckInData = { sleep: number | null; mood: number | null; hydration: number | null; stress: number | null };
 type Row = SessionExercise & { exercise: Exercise; loggedSets?: LoggedSetData[] };
+type OptimisticRow = Row & { _optimistic: true };
 type SessionWithExercises = Session & { sessionExercises: Row[]; checkIn?: CheckInData | null };
 
 const PALETTE = ["#FCA5A5", "#FDBA74", "#FDE68A", "#86EFAC", "#93C5FD", "#C4B5FD"];
@@ -155,6 +157,7 @@ export function SessionEditor({
   onAfterMutation,
   isTemplateSession,
   onOpenAddExercise,
+  onAddExerciseRef,
 }: {
   session: SessionWithExercises;
   exercises: Exercise[];
@@ -162,6 +165,7 @@ export function SessionEditor({
   onAfterMutation?: () => void;
   isTemplateSession?: boolean;
   onOpenAddExercise?: (prefillName: string, onCreated: (ex: Exercise) => void) => void;
+  onAddExerciseRef?: React.MutableRefObject<((exerciseId: string) => void) | null>;
 }) {
   // Row/group/detail edits inside an already-open session don't need a
   // full page refresh — onAfterMutation() re-fetches just this session's
@@ -169,6 +173,53 @@ export function SessionEditor({
   // change which sessions exist (create/move/delete/copy) — those already
   // call it themselves in BuilderLeftPanel.
   const afterMutation = () => { onAfterMutation?.(); };
+
+  // ─── Exercise add — owned here ───────────────────────────────────────────────────────
+  const addExercise = useCallback(async (exerciseId: string) => {
+    const exercise = exercises.find((e) => e.id === exerciseId);
+    if (!exercise) return;
+
+    // Append optimistic row at the bottom immediately
+    const optimisticId = "__optimistic_" + Date.now() + "_" + Math.random();
+    setRows((prev) => {
+      const maxOrder = prev.length > 0 ? Math.max(...prev.map((r) => r.order)) : -1;
+      const optimisticRow: OptimisticRow = {
+        id: optimisticId,
+        sessionId: session.id,
+        exerciseId,
+        exercise,
+        order: maxOrder + 1,
+        sets: null,
+        reps: null,
+        setType: "FIXED_REPS",
+        loadType: "FIXED",
+        loadValue: null,
+        loadUnit: null,
+        coachNote: null,
+        target: null,
+        groupId: null,
+        groupColor: null,
+        isRandomizerSlot: false,
+        slotPoolExerciseIds: [],
+        rpeEnabled: false,
+        restSeconds: null,
+        _optimistic: true,
+      };
+      return [...prev, optimisticRow];
+    });
+
+    // Run server action
+    await addExerciseToSession(session.id, exerciseId);
+    // onAfterMutation triggers fetchSession in ProgramBuilder which updates session prop
+    // The useEffect above will then swap the optimistic row for the real one in-place
+    onAfterMutation?.();
+  }, [exercises, session.id, onAfterMutation]);
+
+  // Expose addExercise to parent via ref
+  useEffect(() => {
+    if (onAddExerciseRef) onAddExerciseRef.current = addExercise;
+    return () => { if (onAddExerciseRef) onAddExerciseRef.current = null; };
+  }, [addExercise, onAddExerciseRef]);
   const [rows, setRows] = useState<Row[]>(
     [...session.sessionExercises].sort((a, b) => a.order - b.order)
   );
@@ -198,7 +249,22 @@ export function SessionEditor({
   const [pasteOpen, setPasteOpen] = useState(false);
 
   useEffect(() => {
-    setRows([...session.sessionExercises].sort((a, b) => a.order - b.order));
+    const incoming = [...session.sessionExercises].sort((a, b) => a.order - b.order);
+    setRows((prev) => {
+      const optimisticRows = prev.filter((r) => (r as any)._optimistic === true);
+      if (optimisticRows.length === 0) {
+        // No pending optimistic rows — straight reset
+        return incoming;
+      }
+      // Check if server data already contains all the exercises we added optimistically
+      // (match by exerciseId since optimistic ids are fake)
+      const incomingExerciseIds = new Set(incoming.map((r) => r.exerciseId));
+      const stillPending = optimisticRows.filter((r) => !incomingExerciseIds.has(r.exerciseId));
+      // Return server rows + any still-pending optimistic rows at the bottom
+      const maxOrder = incoming.length > 0 ? Math.max(...incoming.map((r) => r.order)) : -1;
+      const pendingWithOrder = stillPending.map((r, i) => ({ ...r, order: maxOrder + 1 + i }));
+      return [...incoming, ...pendingWithOrder];
+    });
   }, [session.id, session.sessionExercises]);
 
   const [templateLocked, setTemplateLocked] = useState(true);
@@ -647,15 +713,7 @@ export function SessionEditor({
         </p>
       ) : (
         <div className="flex flex-col gap-2 select-none" onMouseUp={finishSelect}>
-          {hasOptimisticRows && (
-            <div className="flex items-center gap-1.5 rounded border border-neutral-200 bg-neutral-50 px-2 py-1">
-              <svg className="animate-spin h-3 w-3 text-neutral-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-              </svg>
-              <span className="text-[10px] text-neutral-400">Saving...</span>
-            </div>
-          )}
+
           {blocks.map((block) => {
             if (block.kind === "single") {
               const { row, index } = block;
@@ -1514,4 +1572,5 @@ function DetailsModal({
     </>
   );
 }
+
 
