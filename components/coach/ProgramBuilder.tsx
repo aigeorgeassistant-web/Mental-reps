@@ -9,7 +9,7 @@ import type { Client, Exercise, Program, Session, SessionExercise } from "@prism
 import { BuilderLeftPanel } from "./BuilderLeftPanel";
 import { SessionEditor } from "./SessionEditor";
 import { BuilderRightPanel } from "./BuilderRightPanel";
-import { authClient } from "@/lib/auth/client";
+import { CoachBottomMenu } from "./CoachBottomMenu";
 
 // ─── Types ────────────────────────────────────────────────────────────────────────────────
 
@@ -52,7 +52,6 @@ export function ProgramBuilder({
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [selectedTemplateSession, setSelectedTemplateSession] = useState<FullSession | null>(null);
   const [fetchedClientSession, setFetchedClientSession] = useState<FullSession | null>(null);
-  const [loggingOut, setLoggingOut] = useState(false);
   const [monthCursor, setMonthCursor] = useState<Date>(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
@@ -171,14 +170,6 @@ export function ProgramBuilder({
     setPasteOnCreated(() => onCreated);
   }
 
-  // ─── Logout ──────────────────────────────────────────────────────────────────────────────
-
-  async function handleLogout() {
-    setLoggingOut(true);
-    await authClient.signOut();
-    router.push("/sign-in");
-  }
-
   // ─── Render ────────────────────────────────────────────────────────────────────────────
 
   return (
@@ -227,28 +218,14 @@ export function ProgramBuilder({
         onSelectTemplateSession={handleSelectTemplateSession}
       />
 
-      <div className="fixed bottom-4 left-4 flex flex-col gap-2 z-50">
-        <a
-          href="/coach/clients"
-          className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-xs font-medium text-neutral-600 shadow-sm hover:bg-neutral-50 transition-colors"
-        >
-          ← Clients
-        </a>
-        <a
-          href="/coach/templates"
-          className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-xs font-medium text-neutral-600 shadow-sm hover:bg-neutral-50 transition-colors"
-        >
-          🏷 Templates
-        </a>
-        <button
-          onClick={handleLogout}
-          disabled={loggingOut}
-          className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-xs font-medium text-neutral-600 shadow-sm hover:bg-neutral-50 transition-colors disabled:opacity-50"
-        >
-          {loggingOut ? "Signing out…" : "Sign out"}
-        </button>
-      </div>
+      <CoachBottomMenu
+        links={[
+          { href: "/coach/clients", label: "← Clients" },
+          { href: "/coach/templates", label: "🏷 Templates" },
+        ]}
+      />
     </div>
   );
 }
+
 
