@@ -748,12 +748,167 @@ function GroupCard({ label, color, children, openKey, activeKey, onToggle, previ
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+
+// ─── History Overlay ──────────────────────────────────────────────────────────
+
+type HistoryEntry = { date: string; sets: { weight: number | null; reps: number | null }[] };
+type ExerciseHistory = {
+  exerciseId: string;
+  name: string;
+  bestSet: { weight: number; reps: number; date: string } | null;
+  improvement: number | null; // % improvement first→best e1rm
+  recent: HistoryEntry[];
+};
+
+function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClose: () => void }) {
+  const todayRows = [...session.sessionExercises].sort((a, b) => a.order - b.order);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [data, setData] = useState<Record<string, ExerciseHistory>>({});
+  const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [showAll, setShowAll] = useState(false);
+
+  // Dedupe today's exercises by exerciseId
+  const todayExercises = todayRows.filter((r, i, arr) => arr.findIndex(x => x.exerciseId === r.exerciseId) === i);
+
+  async function loadHistory(exerciseId: string, name: string) {
+    if (data[exerciseId] || loading[exerciseId]) return;
+    setLoading((p) => ({ ...p, [exerciseId]: true }));
+    try {
+      const res = await fetch(`/api/client/exercises/${exerciseId}/history`);
+      const d = await res.json();
+      // Compute improvement: first session e1rm → best e1rm
+      const sets = d.sets ?? [];
+      const e1rm = (w: number, r: number) => w * (1 + r / 30);
+      let firstE1rm: number | null = null;
+      let bestE1rm: number | null = null;
+      // Group sets by sessionId to get first and best session
+      const bySession: Record<string, typeof sets> = {};
+      for (const s of sets) {
+        const key = s.sessionId ?? "unknown";
+        if (!bySession[key]) bySession[key] = [];
+        bySession[key].push(s);
+      }
+      const sessionKeys = Object.keys(bySession);
+      if (sessionKeys.length >= 2) {
+        const firstSets = bySession[sessionKeys[0]];
+        const firstBest = firstSets.reduce((b: any, s: any) => !b || (s.weight && s.reps && e1rm(s.weight, s.reps) > e1rm(b.weight ?? 0, b.reps ?? 0)) ? s : b, null);
+        if (firstBest?.weight && firstBest?.reps) firstE1rm = e1rm(firstBest.weight, firstBest.reps);
+        if (d.bestSet?.weight && d.bestSet?.reps) bestE1rm = e1rm(d.bestSet.weight, d.bestSet.reps);
+      }
+      const improvement = firstE1rm && bestE1rm && firstE1rm > 0 ? Math.round(((bestE1rm - firstE1rm) / firstE1rm) * 100) : null;
+      // Build recent sessions (last 5)
+      const recent: HistoryEntry[] = sessionKeys.slice(-5).reverse().map((key) => ({
+        date: bySession[key][0]?.sessionId ?? key,
+        sets: bySession[key].map((s: any) => ({ weight: s.weight, reps: s.reps })),
+      }));
+      setData((p) => ({ ...p, [exerciseId]: { exerciseId, name, bestSet: d.bestSet, improvement, recent } }));
+    } catch {}
+    setLoading((p) => ({ ...p, [exerciseId]: false }));
+  }
+
+  function toggleExpand(exerciseId: string, name: string) {
+    if (expanded === exerciseId) { setExpanded(null); return; }
+    setExpanded(exerciseId);
+    loadHistory(exerciseId, name);
+  }
+
+  const displayList = showAll
+    ? todayExercises // for now just today — "All" to be added later
+    : todayExercises;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "var(--bg)", display: "flex", flexDirection: "column" }}>
+      {/* Header */}
+      <div style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 12 }}>
+        <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>←</button>
+        <div>
+          <div style={{ fontSize: 10, letterSpacing: ".14em", color: "var(--steel)", fontWeight: 600, textTransform: "uppercase" }}>Exercise History</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text)" }}>Today&apos;s Session</div>
+        </div>
+      </div>
+
+      {/* List */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
+        {displayList.length === 0 && (
+          <div style={{ padding: 24, textAlign: "center", color: "var(--dim)", fontSize: 13 }}>No exercises in this session.</div>
+        )}
+        {displayList.map((row) => {
+          const h = data[row.exerciseId];
+          const isOpen = expanded === row.exerciseId;
+          const isLoading = loading[row.exerciseId];
+          return (
+            <div key={row.exerciseId} style={{ borderBottom: "1px solid var(--line)" }}>
+              {/* Exercise row */}
+              <button
+                onClick={() => toggleExpand(row.exerciseId, row.exercise.name)}
+                style={{ width: "100%", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", color: "var(--text)", cursor: "pointer", textAlign: "left", gap: 8 }}
+              >
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{row.exercise.name}</div>
+                  {h && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
+                      {h.bestSet && (
+                        <span style={{ fontSize: 11, color: "var(--good)", fontWeight: 700 }}>
+                          🏆 {h.bestSet.weight}kg × {h.bestSet.reps}
+                        </span>
+                      )}
+                      {h.improvement !== null && (
+                        <span style={{ fontSize: 11, color: h.improvement >= 0 ? "var(--good)" : "var(--accent)", fontWeight: 700 }}>
+                          {h.improvement >= 0 ? "+" : ""}{h.improvement}% from start
+                        </span>
+                      )}
+                      {!h.bestSet && (
+                        <span style={{ fontSize: 11, color: "var(--dim)" }}>No history yet</span>
+                      )}
+                    </div>
+                  )}
+                  {!h && !isLoading && (
+                    <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 3 }}>Tap to load history</div>
+                  )}
+                  {isLoading && (
+                    <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 3 }}>Loading…</div>
+                  )}
+                </div>
+                <span style={{ fontSize: 16, color: "var(--dim)", transition: "transform .2s", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
+              </button>
+
+              {/* Expanded detail */}
+              {isOpen && h && h.recent.length > 0 && (
+                <div style={{ padding: "0 16px 14px" }}>
+                  <div style={{ fontSize: 10, letterSpacing: ".1em", color: "var(--steel)", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Recent Sessions</div>
+                  {h.recent.map((entry, ei) => (
+                    <div key={ei} style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, color: "var(--dim)", marginBottom: 3, fontFamily: "monospace" }}>{entry.date}</div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {entry.sets.map((s, si) => (
+                          <span key={si} style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, padding: "3px 8px", fontFamily: "monospace" }}>
+                            {s.weight ?? "—"}×{s.reps ?? "—"}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {isOpen && h && h.recent.length === 0 && (
+                <div style={{ padding: "0 16px 14px", fontSize: 12, color: "var(--dim)" }}>No logged sets yet.</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRows; defaultUnit: Units }) {
   const rows = [...session.sessionExercises].sort((a, b) => a.order - b.order);
   const blocks = buildBlocks(rows);
   const [timer, setTimer] = useState<TimerConfig | null>(null);
   const [emomTimer, setEmomTimer] = useState<EmomConfig | null>(null);
   const [calOpen, setCalOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const [checkinOpen, setCheckinOpen] = useState(false);
   const [checkinDone, setCheckinDone] = useState(false);
@@ -825,6 +980,7 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
       {timer && <IntervalTimer config={timer} onClose={() => setTimer(null)} />}
       {emomTimer && <EmomTimer config={emomTimer} onClose={() => setEmomTimer(null)} />}
       {calOpen && <CalendarPopup sessionId={session.id} onClose={() => setCalOpen(false)} />}
+      {historyOpen && <HistoryOverlay session={session} onClose={() => setHistoryOpen(false)} />}
       {checkinOpen && (
         <CheckinOverlay
           sessionId={session.id}
@@ -835,7 +991,34 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
       <header style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--line)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 10 }}>
         <div style={{ fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--steel)", fontWeight: 600 }}>{date}</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 2 }}>
-          <h1 style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.01em", color: "var(--text)", margin: 0 }}>{session.dayLabel}</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+            {/* ··· menu — left of title */}
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setMenuOpen((v) => !v)}
+                style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: menuOpen ? "var(--panel)" : "transparent", color: "var(--dim)", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", letterSpacing: ".08em" }}
+              >···</button>
+              {menuOpen && (
+                <div style={{ position: "absolute", top: 44, left: 0, zIndex: 40, background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 10, padding: "6px 0", minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,.4)" }}
+                  onClick={() => setMenuOpen(false)}>
+                  <button
+                    onClick={() => setHistoryOpen(true)}
+                    style={{ width: "100%", padding: "10px 16px", background: "transparent", border: "none", color: "var(--text)", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit" }}
+                  >
+                    <span>📈</span> Exercise History
+                  </button>
+                  <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
+                  <button
+                    onClick={toggleRest}
+                    style={{ width: "100%", padding: "10px 16px", background: "transparent", border: "none", color: restEnabled ? "var(--steel)" : "var(--dim)", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit" }}
+                  >
+                    <span>⏱</span> Rest Timer <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, color: restEnabled ? "var(--good)" : "var(--dim)" }}>{restEnabled ? "ON" : "OFF"}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+            <h1 style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.01em", color: "var(--text)", margin: 0, flex: 1 }}>{session.dayLabel}</h1>
+          </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={() => setCheckinOpen(true)}
@@ -845,7 +1028,6 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
               <span style={{ fontSize: 13, letterSpacing: 0 }}>▁▃▅</span>
               {checkinDone ? "Logged" : "Check-in"}
             </button>
-            <button onClick={toggleRest} title={restEnabled ? "Rest timer ON — tap to disable" : "Rest timer OFF — tap to enable"} style={{ width: 38, height: 38, borderRadius: 9, border: `1px solid ${restEnabled ? "var(--steel)" : "var(--line)"}`, background: restEnabled ? "rgba(92,122,138,.18)" : "var(--panel)", color: restEnabled ? "var(--steel)" : "var(--dim)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>⏱</button>
             <button onClick={() => setCalOpen(true)} style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }} title="Calendar">📅</button>
             <a href="/client/dashboard" style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }} title="Overview">📊</a>
           </div>
