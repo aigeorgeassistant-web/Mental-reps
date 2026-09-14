@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
+import { CoachBottomMenu } from "@/components/coach/CoachBottomMenu";
 
 const ADMIN_EMAIL = "ai.george.assistant@gmail.com";
 
@@ -166,12 +167,10 @@ export default function AdminPage() {
 
   return (
     <main style={{ minHeight: "100vh", background: "#f9fafb", fontFamily: "system-ui, sans-serif" }}>
+      <CoachBottomMenu links={[{ href: "/coach/clients", label: "← Back to app" }]} />
       {/* Header */}
       <div style={{ background: "#1a1a1a", color: "#fff", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontWeight: 700, fontSize: 15 }}>⚙️ Mental Reps Admin</span>
-        <button onClick={() => router.push("/coach/clients")} style={{ ...S.btn("ghost"), background: "rgba(255,255,255,.1)", color: "#fff", fontSize: 12 }}>
-          ← Back to app
-        </button>
       </div>
 
       <div style={{ maxWidth: 820, margin: "0 auto", padding: 24 }}>
@@ -272,3 +271,4 @@ export default function AdminPage() {
     </main>
   );
 }
+
