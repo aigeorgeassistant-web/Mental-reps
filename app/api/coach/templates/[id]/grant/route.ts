@@ -8,8 +8,9 @@ import { getCurrentRole } from "@/lib/role";
 // Idempotent — silently succeeds if the client already has access.
 export async function POST(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const { role, coach } = await getCurrentRole();
   if (role !== "coach" || !coach) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -22,7 +23,7 @@ export async function POST(
 
   // Verify template belongs to this coach
   const template = await db.program.findFirst({
-    where: { id: params.id, coachId: coach.id, isTemplate: true },
+    where: { id, coachId: coach.id, isTemplate: true },
     select: { id: true, currency: true },
   });
   if (!template) {
@@ -40,7 +41,7 @@ export async function POST(
 
   // Idempotent — skip if already granted/purchased
   const existing = await db.templatePurchase.findFirst({
-    where: { templateId: params.id, clientId },
+    where: { templateId: id, clientId },
   });
   if (existing) {
     return NextResponse.json({ ok: true, alreadyGranted: true });
@@ -48,7 +49,7 @@ export async function POST(
 
   await db.templatePurchase.create({
     data: {
-      templateId: params.id,
+      templateId: id,
       clientId,
       pricePaid: 0,
       currency: template.currency ?? "KWD",
