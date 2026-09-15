@@ -218,7 +218,8 @@ model ClientInvite {
   usedAt    DateTime?
 }
 
-// Template purchases — tracks which client bought which template.
+// Template purchases — tracks which client bought or was granted which template.
+// grantedBy: coachId if granted for free by a coach, null if purchased via Paddle.
 model TemplatePurchase {
   id          String   @id @default(cuid())
   templateId  String
@@ -226,6 +227,7 @@ model TemplatePurchase {
   purchasedAt DateTime @default(now())
   pricePaid   Decimal
   currency    String
+  grantedBy   String?  // coachId — set when coach grants for free, null for paid
   template    Program  @relation(fields: [templateId], references: [id])
   client      Client   @relation(fields: [clientId], references: [id])
 }
