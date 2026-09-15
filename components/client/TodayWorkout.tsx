@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Exercise, Session, SessionExercise, Units } from "@prisma/client";
 import { parseIntervalTarget, resolveGroupTarget } from "@/lib/timerNotation";
 import { SignOutButton } from "@/components/shared/SignOutButton";
+import { ProgramsOverlay } from "@/components/client/ProgramsOverlay";
 
 type Row = SessionExercise & { exercise: Exercise };
 type SessionWithRows = Session & { sessionExercises: Row[] };
@@ -1002,6 +1003,7 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
   const [emomTimer, setEmomTimer] = useState<EmomConfig | null>(null);
   const [calOpen, setCalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showPrograms, setShowPrograms] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const [checkinOpen, setCheckinOpen] = useState(false);
@@ -1113,6 +1115,13 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
                   </button>
                   <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
                   <button
+                    onClick={() => setShowPrograms(true)}
+                    style={{ width: "100%", padding: "10px 16px", background: "transparent", border: "none", color: "var(--text)", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit" }}
+                  >
+                    <span>📋</span> Programs
+                  </button>
+                  <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
+                  <button
                     onClick={toggleRest}
                     style={{ width: "100%", padding: "10px 16px", background: "transparent", border: "none", color: restEnabled ? "var(--steel)" : "var(--dim)", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit" }}
                   >
@@ -1128,6 +1137,13 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
           </div>
         </div>
       </header>
+
+      {showPrograms && (
+        <ProgramsOverlay
+          onClose={() => setShowPrograms(false)}
+          onApplied={() => {}}
+        />
+      )}
 
       {restLeft !== null && (
         <div style={{ position: "fixed", bottom: "calc(16px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: 30, background: "rgba(99,130,201,0.12)", border: "1px solid rgba(99,130,201,0.3)", backdropFilter: "blur(8px)", borderRadius: 999, padding: "6px 16px", display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap" }}>
