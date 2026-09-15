@@ -462,9 +462,9 @@ function TemplateEditor({ template, isAdmin, clients, onSaved }: {
           <div className="flex items-center justify-between mt-4">
             <button
               onClick={() => setShowGrantPicker(true)}
-              className="text-xs text-neutral-500 hover:text-neutral-800 underline underline-offset-2"
+              className="px-4 py-2 border border-neutral-300 text-neutral-700 text-xs rounded hover:bg-neutral-100"
             >
-              {grantedKey > 0 ? "✓ Granted — grant to another client" : "Grant for free to..."}
+              {grantedKey > 0 ? "✓ Granted — grant to another" : "Grant for free to..."}
             </button>
             <div className="flex items-center gap-3">
               {savedKey > 0 && (
