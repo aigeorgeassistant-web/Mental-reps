@@ -37,6 +37,12 @@ type Bundle = {
   items: { template: BundleTemplate }[];
 };
 
+type CoachClient = {
+  id: string;
+  name: string;
+  email: string;
+};
+
 type DiscountType = "pct" | "flat";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -215,10 +221,94 @@ function DiscountSection({
   );
 }
 
+// ─── Grant Client Picker Modal ────────────────────────────────────────────────
+
+function GrantPicker({
+  clients,
+  onClose,
+  onGrant,
+}: {
+  clients: CoachClient[];
+  onClose: () => void;
+  onGrant: (clientId: string) => Promise<void>;
+}) {
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [granting, setGranting] = useState(false);
+
+  const filtered = useMemo(
+    () => clients.filter(c =>
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.email.toLowerCase().includes(search.toLowerCase())
+    ),
+    [clients, search]
+  );
+
+  async function handleGrant() {
+    if (!selectedId) return;
+    setGranting(true);
+    await onGrant(selectedId);
+    setGranting(false);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl w-80 shadow-lg border overflow-hidden">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <p className="text-sm font-medium">Grant free access</p>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700 text-lg">×</button>
+        </div>
+        <div className="px-4 pt-3 pb-2">
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search clients..."
+            className="w-full border rounded px-2 py-1.5 text-xs"
+            autoFocus
+          />
+        </div>
+        <div className="max-h-52 overflow-y-auto px-2 pb-2">
+          {filtered.map(c => (
+            <button
+              key={c.id}
+              onClick={() => setSelectedId(c.id)}
+              className={`w-full flex items-center gap-2 px-2 py-2 rounded text-left hover:bg-neutral-50 ${
+                selectedId === c.id ? "bg-neutral-100" : ""
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 border ${
+                selectedId === c.id ? "bg-neutral-900 border-neutral-900" : "border-neutral-300"
+              }`} />
+              <span className="flex-1 text-sm">{c.name}</span>
+              <span className="text-xs text-neutral-400">{c.email}</span>
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <p className="text-xs text-neutral-400 px-2 py-3">No clients match.</p>
+          )}
+        </div>
+        <div className="px-4 py-3 border-t flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs border rounded text-neutral-500">
+            Cancel
+          </button>
+          <button
+            onClick={handleGrant}
+            disabled={!selectedId || granting}
+            className="px-3 py-1.5 text-xs bg-neutral-900 text-white rounded disabled:opacity-40"
+          >
+            {granting ? "Granting..." : "Grant access"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Template Editor ──────────────────────────────────────────────────────────
 
-function TemplateEditor({ template, isAdmin, onSaved }: {
-  template: Template; isAdmin: boolean; onSaved: (t: Template) => void;
+function TemplateEditor({ template, isAdmin, clients, onSaved }: {
+  template: Template; isAdmin: boolean; clients: CoachClient[]; onSaved: (t: Template) => void;
 }) {
   const [tab, setTab] = useState<"pricing" | "details">("pricing");
   const [price, setPrice] = useState(template.price != null ? String(template.price) : "");
@@ -238,6 +328,8 @@ function TemplateEditor({ template, isAdmin, onSaved }: {
   const [category, setCategory] = useState(template.category || "");
   const [saving, setSaving] = useState(false);
   const [savedKey, setSavedKey] = useState(0);
+  const [showGrantPicker, setShowGrantPicker] = useState(false);
+  const [grantedKey, setGrantedKey] = useState(0);
 
   useEffect(() => {
     setPrice(template.price != null ? String(template.price) : "");
@@ -285,11 +377,32 @@ function TemplateEditor({ template, isAdmin, onSaved }: {
     setSaving(false);
   }
 
+  async function handleGrant(clientId: string) {
+    const res = await fetch(`/api/coach/templates/${template.id}/grant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      setShowGrantPicker(false);
+      setGrantedKey(k => k + 1);
+    }
+  }
+
   const previewDiscountFlat = discountPayload.discountFlat ?? null;
   const previewDiscountPct = discountPayload.discountPercent ?? null;
 
   return (
     <div>
+      {showGrantPicker && (
+        <GrantPicker
+          clients={clients}
+          onClose={() => setShowGrantPicker(false)}
+          onGrant={handleGrant}
+        />
+      )}
+
       <div className="mb-3">
         <h2 className="text-base font-medium">{template.name}</h2>
         <p className="text-xs text-neutral-500 mt-0.5">
@@ -345,6 +458,24 @@ function TemplateEditor({ template, isAdmin, onSaved }: {
             discountPercent={previewDiscountPct}
             discountEndsAt={discountEndsAt || null}
           />
+
+          <div className="flex items-center justify-between mt-4">
+            <button
+              onClick={() => setShowGrantPicker(true)}
+              className="text-xs text-neutral-500 hover:text-neutral-800 underline underline-offset-2"
+            >
+              {grantedKey > 0 ? "✓ Granted — grant to another client" : "Grant for free to..."}
+            </button>
+            <div className="flex items-center gap-3">
+              {savedKey > 0 && (
+                <span key={savedKey} className="text-xs text-green-600 animate-pulse">Saved</span>
+              )}
+              <button onClick={handleSave} disabled={saving}
+                className="px-4 py-2 bg-neutral-900 text-white text-xs rounded hover:bg-neutral-700 disabled:opacity-50">
+                {saving ? "Saving..." : "Save changes"}
+              </button>
+            </div>
+          </div>
         </>
       )}
 
@@ -365,18 +496,19 @@ function TemplateEditor({ template, isAdmin, onSaved }: {
             <textarea value={description} onChange={e => setDescription(e.target.value)}
               className="flex-1 border rounded px-2 py-1.5 text-xs resize-none h-20" />
           </div>
+          <div className="flex items-center justify-end mt-4">
+            <div className="flex items-center gap-3">
+              {savedKey > 0 && (
+                <span key={savedKey} className="text-xs text-green-600 animate-pulse">Saved</span>
+              )}
+              <button onClick={handleSave} disabled={saving}
+                className="px-4 py-2 bg-neutral-900 text-white text-xs rounded hover:bg-neutral-700 disabled:opacity-50">
+                {saving ? "Saving..." : "Save changes"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
-
-      <div className="flex items-center justify-end gap-3 mt-4">
-        {savedKey > 0 && (
-          <span key={savedKey} className="text-xs text-green-600 animate-pulse">Saved</span>
-        )}
-        <button onClick={handleSave} disabled={saving}
-          className="px-4 py-2 bg-neutral-900 text-white text-xs rounded hover:bg-neutral-700 disabled:opacity-50">
-          {saving ? "Saving..." : "Save changes"}
-        </button>
-      </div>
     </div>
   );
 }
@@ -663,6 +795,7 @@ export default function TemplatesPage() {
   const [sideTab, setSideTab] = useState<"templates" | "bundles">("templates");
   const [templates, setTemplates] = useState<Template[]>([]);
   const [bundles, setBundles] = useState<Bundle[]>([]);
+  const [clients, setClients] = useState<CoachClient[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -674,12 +807,14 @@ export default function TemplatesPage() {
   const [creating, setCreating] = useState(false);
 
   const loadAll = useCallback(async () => {
-    const [tr, br] = await Promise.all([
+    const [tr, br, cr] = await Promise.all([
       fetch("/api/coach/templates/pricing").then(r => r.json()),
       fetch("/api/coach/bundles").then(r => r.json()),
+      fetch("/api/coach/clients").then(r => r.json()),
     ]);
     if (tr.templates) { setTemplates(tr.templates); setIsAdmin(tr.isAdmin ?? false); }
     if (br.bundles) setBundles(br.bundles);
+    if (Array.isArray(cr)) setClients(cr);
     setLoading(false);
   }, []);
 
@@ -810,6 +945,7 @@ export default function TemplatesPage() {
             key={selectedTemplate.id}
             template={selectedTemplate}
             isAdmin={isAdmin}
+            clients={clients}
             onSaved={(updated) => setTemplates(prev => prev.map(t => t.id === updated.id ? { ...t, ...updated } : t))}
           />
         )}
