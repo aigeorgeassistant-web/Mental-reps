@@ -129,58 +129,122 @@ function YouTubeOverlay({ url, onClose }: { url: string; onClose: () => void }) 
 function DrumPicker({ values, initial, onConfirm, onClose, label }: {
   values: number[]; initial: number; onConfirm: (v: number) => void; onClose: () => void; label: string;
 }) {
-  const ITEM_H = 52;
+  const ITEM_H = 48;
+  const VISIBLE = 5;
+  const PAD = ITEM_H * Math.floor(VISIBLE / 2);
+
   const [selected, setSelected] = useState(() => { const idx = values.indexOf(initial); return idx >= 0 ? idx : 0; });
   const [manual, setManual] = useState(false);
   const [manualVal, setManualVal] = useState(String(initial));
   const listRef = useRef<HTMLDivElement>(null);
-  const startY = useRef(0); const startIdx = useRef(0); const dragging = useRef(false);
+  const isScrolling = useRef(false);
+  const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { if (listRef.current) listRef.current.scrollTop = selected * ITEM_H; }, []);
+  useEffect(() => {
+    if (listRef.current && !isScrolling.current) {
+      listRef.current.scrollTop = selected * ITEM_H;
+    }
+  }, [selected, ITEM_H]);
 
-  function onTouchStart(e: React.TouchEvent) { startY.current = e.touches[0].clientY; startIdx.current = selected; dragging.current = true; }
-  function onTouchMove(e: React.TouchEvent) {
-    if (!dragging.current) return;
-    const delta = Math.round((startY.current - e.touches[0].clientY) / ITEM_H);
-    const next = Math.max(0, Math.min(values.length - 1, startIdx.current + delta));
-    setSelected(next);
-    if (listRef.current) listRef.current.scrollTop = next * ITEM_H;
+  function onScroll() {
+    if (!listRef.current) return;
+    isScrolling.current = true;
+    const idx = Math.max(0, Math.min(values.length - 1, Math.round(listRef.current.scrollTop / ITEM_H)));
+    setSelected(idx);
+    if (snapTimer.current) clearTimeout(snapTimer.current);
+    snapTimer.current = setTimeout(() => {
+      if (listRef.current) listRef.current.scrollTop = idx * ITEM_H;
+      isScrolling.current = false;
+    }, 80);
   }
-  function onTouchEnd() { dragging.current = false; }
-  function onScroll() { if (!listRef.current || dragging.current) return; setSelected(Math.max(0, Math.min(values.length - 1, Math.round(listRef.current.scrollTop / ITEM_H)))); }
-  function pick(v: number) { onConfirm(v); onClose(); }
+
+  function onWheel(e: React.WheelEvent) { e.stopPropagation(); }
+  function onTouchMove(e: React.TouchEvent) { e.stopPropagation(); }
+  function pick(idx: number) { onConfirm(values[idx]); onClose(); }
   function submitManual() { const v = parseFloat(manualVal); if (!isNaN(v)) { onConfirm(v); onClose(); } }
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1001, background: "rgba(0,0,0,.7)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--panel)", borderRadius: "16px 16px 0 0", width: "100%", maxWidth: 400, padding: "20px 20px 36px" }}>
-        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--dim)", marginBottom: 16, textAlign: "center" }}>{label}</div>
+    <div
+      onClick={onClose}
+      onWheel={(e) => e.stopPropagation()}
+      style={{ position: "fixed", inset: 0, zIndex: 1001, background: "rgba(0,0,0,.65)" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed", bottom: 0, left: 0, right: 0,
+          paddingBottom: "env(safe-area-inset-bottom, 20px)",
+          background: "var(--panel)", borderRadius: "18px 18px 0 0",
+          zIndex: 1002,
+        }}
+      >
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--dim)", padding: "18px 20px 12px", textAlign: "center" }}>{label}</div>
+
         {!manual ? (
-          <div style={{ position: "relative", height: ITEM_H * 5, overflow: "hidden" }}>
-            <div style={{ position: "absolute", top: ITEM_H * 2, left: 0, right: 0, height: ITEM_H, background: "rgba(255,255,255,.06)", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)", pointerEvents: "none", borderRadius: 8 }} />
-            <div ref={listRef} onScroll={onScroll} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
-              style={{ height: "100%", overflowY: "scroll", scrollSnapType: "y mandatory", scrollbarWidth: "none", paddingTop: ITEM_H * 2, paddingBottom: ITEM_H * 2 }}>
-              {values.map((v, i) => (
-                <div key={i} onClick={() => pick(v)} style={{ height: ITEM_H, display: "flex", alignItems: "center", justifyContent: "center", scrollSnapAlign: "start", fontSize: i === selected ? 30 : 20, fontWeight: i === selected ? 800 : 400, color: i === selected ? "var(--text)" : "var(--dim)", transition: "all .1s", cursor: "pointer", fontFamily: "monospace" }}>
-                  {v % 1 === 0 ? v : v.toFixed(1)}
-                </div>
-              ))}
+          <div style={{ position: "relative", height: ITEM_H * VISIBLE, overflow: "hidden", margin: "0 20px" }}>
+            <div style={{ position: "absolute", top: PAD, left: 0, right: 0, height: ITEM_H, background: "rgba(255,255,255,.07)", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)", pointerEvents: "none", borderRadius: 8, zIndex: 1 }} />
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: PAD, background: "linear-gradient(to bottom, var(--panel), transparent)", pointerEvents: "none", zIndex: 2 }} />
+            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: PAD, background: "linear-gradient(to top, var(--panel), transparent)", pointerEvents: "none", zIndex: 2 }} />
+            <div
+              ref={listRef}
+              onScroll={onScroll}
+              onWheel={onWheel}
+              onTouchMove={onTouchMove}
+              style={{
+                height: "100%",
+                overflowY: "scroll",
+                scrollbarWidth: "none",
+                overscrollBehavior: "contain",
+                paddingTop: PAD,
+                paddingBottom: PAD,
+              }}
+            >
+              {values.map((v, i) => {
+                const dist = Math.abs(i - selected);
+                const scale = dist === 0 ? 1 : dist === 1 ? 0.82 : 0.68;
+                const opacity = dist === 0 ? 1 : dist === 1 ? 0.55 : 0.3;
+                return (
+                  <div
+                    key={i}
+                    onClick={() => pick(i)}
+                    style={{
+                      height: ITEM_H,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 28,
+                      fontWeight: dist === 0 ? 800 : 500,
+                      color: dist === 0 ? "var(--text)" : "var(--dim)",
+                      fontFamily: "monospace",
+                      transform: `scale(${scale})`,
+                      opacity,
+                      transition: "transform .12s, opacity .12s",
+                      cursor: "pointer",
+                      userSelect: "none",
+                    }}
+                  >
+                    {v % 1 === 0 ? v : v.toFixed(1)}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : (
-          <div style={{ padding: "16px 0", display: "flex", gap: 8 }}>
+          <div style={{ padding: "16px 20px", display: "flex", gap: 8 }}>
             <input type="number" value={manualVal} onChange={(e) => setManualVal(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitManual()} autoFocus
               style={{ flex: 1, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 24, fontWeight: 700, padding: "12px 16px", textAlign: "center", fontFamily: "monospace" }} />
             <button onClick={submitManual} style={{ padding: "12px 20px", borderRadius: 10, border: "none", background: "var(--good)", color: "#0c1a10", fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>✓</button>
           </div>
         )}
-        <button onClick={() => setManual((v) => !v)} style={{ display: "block", margin: "12px auto 0", background: "var(--bg)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "9px 24px", borderRadius: 10, width: "100%" }}>
-          {manual ? "← Back to scroll" : "Type a number"}
-        </button>
+
+        <div style={{ padding: "12px 20px 8px" }}>
+          <button onClick={() => setManual((v) => !v)} style={{ display: "block", background: "var(--bg)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "9px 24px", borderRadius: 10, width: "100%" }}>
+            {manual ? "← Back to scroll" : "Type a number"}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
+
 
 // ─── Timers ───────────────────────────────────────────────────────────────────
 
