@@ -1073,6 +1073,21 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
   const [checkinOpen, setCheckinOpen] = useState(false);
   const [checkinDone, setCheckinDone] = useState(false);
   const checkinAutoFired = useRef(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    function onFsChange() { setIsFullscreen(!!document.fullscreenElement); }
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
 
   // Rest timer
   const REST_SECS = 60;
@@ -1162,6 +1177,9 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
               {checkinDone ? "Logged" : "Check-in"}
             </button>
             <button onClick={() => setCalOpen(true)} style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }} title="Calendar">📅</button>
+            <button onClick={toggleFullscreen} title={isFullscreen ? "Exit fullscreen" : "Fullscreen"} style={{ width: 38, height: 38, borderRadius: 9, border: "1px solid var(--line)", background: isFullscreen ? "rgba(92,122,138,.2)" : "var(--panel)", color: isFullscreen ? "var(--steel)" : "var(--dim)", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+              {isFullscreen ? "⊠" : "⛶"}
+            </button>
             {/* ··· menu — right side */}
             <div style={{ position: "relative" }}>
               <button
