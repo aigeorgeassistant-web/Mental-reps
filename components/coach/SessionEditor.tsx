@@ -1348,10 +1348,14 @@ function RowLine({
             .map((s, i) => (
               <span
                 key={i}
+                title={s.notes ? `Client note: ${s.notes}` : undefined}
                 className="rounded px-1.5 py-0.5 text-[10px] font-mono font-semibold"
-                style={{ background: "rgba(84,193,122,.12)", color: "#1a6b3c", border: "1px solid rgba(84,193,122,.3)" }}
+                style={{ background: "rgba(84,193,122,.12)", color: "#1a6b3c", border: "1px solid rgba(84,193,122,.3)", display: "inline-flex", alignItems: "center", gap: 3, cursor: s.notes ? "help" : "default" }}
               >
                 {s.weight != null ? `${s.weight}kg` : ""}{s.weight != null && s.reps != null ? "×" : ""}{s.reps != null ? s.reps : ""}
+                {s.notes && (
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f59e0b", flexShrink: 0, display: "inline-block" }} />
+                )}
               </span>
             ))}
         </div>
@@ -1572,5 +1576,6 @@ function DetailsModal({
     </>
   );
 }
+
 
 
