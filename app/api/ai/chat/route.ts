@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentRole } from "@/lib/role";
 
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "https://ai.mentalreps.work";
+const MODEL = "qwen3.5:35b";
 
 export async function POST(req: NextRequest) {
   const { role } = await getCurrentRole() as any;
@@ -10,7 +11,6 @@ export async function POST(req: NextRequest) {
   try {
     const { messages, system } = await req.json();
 
-    // Build a single prompt from message history (uses /api/generate which is proven to work)
     const history = (messages as { role: string; content: string }[])
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n");
@@ -23,12 +23,12 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "qwen3:8b",
+        model: MODEL,
         prompt,
         stream: false,
         options: { temperature: 0.7 },
       }),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(120000), // 2 min — 35b needs more time
     });
 
     if (!response.ok) {
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: content });
   } catch (err: any) {
     if (err?.name === "TimeoutError") {
-      return NextResponse.json({ error: "AI is resting 🤖" }, { status: 504 });
+      return NextResponse.json({ error: "AI is thinking hard — try again in a moment 🤖" }, { status: 504 });
     }
     return NextResponse.json({ error: "Failed to reach AI", detail: String(err) }, { status: 500 });
   }
