@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentRole } from "@/lib/role";
-import SignOutButton from "@/components/shared/SignOutButton";
+import { SignOutButton } from "@/components/shared/SignOutButton";
 
 // Single URL, role-based views (SPEC.md §3) — this is the fork point.
 export default async function Home() {
