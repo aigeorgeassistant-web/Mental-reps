@@ -228,6 +228,25 @@ function buildContext(data: any): string {
     lines.push(`  5-session avg: Sleep ${avgSleep}/5, Stress ${avgStress}/5`);
   }
 
+  // Upcoming sessions (next 5)
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const upcoming = (data.upcomingSessions ?? [])
+    .filter((s: any) => s.date && s.date.slice(0, 10) >= todayStr)
+    .sort((a: any, b: any) => a.date.localeCompare(b.date))
+    .slice(0, 5);
+  if (upcoming.length) {
+    lines.push("\nUpcoming sessions:");
+    for (const s of upcoming) {
+      const dt = new Date(s.date);
+      const label = dt.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+      lines.push(`  ${label}: ${s.dayLabel}`);
+    }
+  } else {
+    lines.push("\nNo upcoming sessions scheduled.");
+  }
+
+  lines.push(`\nToday's date: ${todayStr}`);
+
   return lines.join("\n");
 }
 
@@ -275,14 +294,24 @@ export function AiChat() {
       return;
     }
     const clientId = match[1];
-    fetch(`/api/coach/clients/${clientId}/performance`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (!data.clientName) return;
-        setClientName(data.clientName);
-        setClientContext(buildContext(data));
-      })
-      .catch(() => {});
+    const today = new Date();
+    const monthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const nextMonthStr = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}`;
+
+    Promise.all([
+      fetch(`/api/coach/clients/${clientId}/performance`).then((r) => r.json()),
+      fetch(`/api/coach/clients/${clientId}/sessions?month=${monthStr}`).then((r) => r.json()).catch(() => ({ sessions: [] })),
+      fetch(`/api/coach/clients/${clientId}/sessions?month=${nextMonthStr}`).then((r) => r.json()).catch(() => ({ sessions: [] })),
+    ]).then(([perfData, sessThis, sessNext]) => {
+      if (!perfData.clientName) return;
+      setClientName(perfData.clientName);
+      const upcomingSessions = [
+        ...(sessThis.sessions ?? []),
+        ...(sessNext.sessions ?? []),
+      ];
+      setClientContext(buildContext({ ...perfData, upcomingSessions }));
+    }).catch(() => {});
   }, [pathname]);
 
   // Scroll to bottom
