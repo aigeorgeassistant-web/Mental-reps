@@ -306,18 +306,12 @@ function EmomTimer({ config, onClose }: { config: EmomConfig; onClose: () => voi
 
 // ─── Calendar popup ───────────────────────────────────────────────────────────
 
-function CalendarPopup({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
-  const [calSessions, setCalSessions] = useState<CalSession[]>([]);
+function CalendarPopup({ sessionId, onClose, initialSessions, onSessionsMoved }: { sessionId: string; onClose: () => void; initialSessions: CalSession[]; onSessionsMoved?: (sessions: CalSession[]) => void }) {
+  const [calSessions, setCalSessions] = useState<CalSession[]>(initialSessions);
   const [monthCursor, setMonthCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [moving, setMoving] = useState<string | null>(null); // sessionId being moved
   const [dayAction, setDayAction] = useState<{ dateKey: string; existingSessionId: string | null } | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/client/sessions")
-      .then((r) => r.json())
-      .then((d) => setCalSessions(d.sessions ?? []));
-  }, []);
 
   const sessionMap = new Map<string, CalSession>();
   calSessions.forEach((s) => {
@@ -357,7 +351,9 @@ function CalendarPopup({ sessionId, onClose }: { sessionId: string; onClose: () 
     });
     // Refresh sessions
     const d = await fetch("/api/client/sessions").then((r) => r.json());
-    setCalSessions(d.sessions ?? []);
+    const updated = d.sessions ?? [];
+    setCalSessions(updated);
+    onSessionsMoved?.(updated);
     setMoving(null);
     setDayAction(null);
     setLoading(false);
@@ -1066,6 +1062,15 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
   const [timer, setTimer] = useState<TimerConfig | null>(null);
   const [emomTimer, setEmomTimer] = useState<EmomConfig | null>(null);
   const [calOpen, setCalOpen] = useState(false);
+  const [preloadedCalSessions, setPreloadedCalSessions] = useState<CalSession[]>([]);
+
+  // Preload calendar sessions on mount so the popup opens instantly
+  useEffect(() => {
+    fetch("/api/client/sessions")
+      .then((r) => r.json())
+      .then((d) => setPreloadedCalSessions(d.sessions ?? []))
+      .catch(() => {});
+  }, []);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showPrograms, setShowPrograms] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -1154,7 +1159,7 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
 
       {timer && <IntervalTimer config={timer} onClose={() => setTimer(null)} />}
       {emomTimer && <EmomTimer config={emomTimer} onClose={() => setEmomTimer(null)} />}
-      {calOpen && <CalendarPopup sessionId={session.id} onClose={() => setCalOpen(false)} />}
+      {calOpen && <CalendarPopup sessionId={session.id} onClose={() => setCalOpen(false)} initialSessions={preloadedCalSessions} onSessionsMoved={(updated) => setPreloadedCalSessions(updated)} />}
       {historyOpen && <HistoryOverlay session={session} onClose={() => setHistoryOpen(false)} />}
       {checkinOpen && (
         <CheckinOverlay
@@ -1380,6 +1385,7 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
     </div>
   );
 }
+
 
 
 
