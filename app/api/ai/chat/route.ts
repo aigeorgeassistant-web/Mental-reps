@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentRole } from "@/lib/role";
 
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "https://ai.mentalreps.work";
-const MODEL = "qwen3.5:35b";
+const MODEL = "joe-speedboat/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4_K_M";
 
 export async function POST(req: NextRequest) {
   const { role } = await getCurrentRole() as any;
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
         stream: false,
         options: { temperature: 0.7 },
       }),
-      signal: AbortSignal.timeout(120000), // 2 min — 35b needs more time
+      signal: AbortSignal.timeout(90000), // 90s — MoE is fast but big
     });
 
     if (!response.ok) {
