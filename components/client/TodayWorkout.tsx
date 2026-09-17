@@ -25,7 +25,7 @@ type Block =
   | { kind: "interval"; rows: Row[]; color: string | null }
   | { kind: "emom"; rows: Row[]; color: string | null; roundSec: number };
 
-type SetState = { weight: number; reps: number; done: boolean; isPr?: boolean; note: string };
+type SetState = { weight: number; reps: number; done: boolean; isPr?: boolean };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -458,53 +458,23 @@ function CalendarPopup({ sessionId, onClose, initialSessions, onSessionsMoved }:
 
 // ─── Set row ──────────────────────────────────────────────────────────────────
 
-function SetRow({ s, i, row, sessionId, unit, onPicker, onChange, onUncheck, onRelog }: {
-  s: SetState; i: number; row: Row; sessionId: string; unit: Units;
+function SetRow({ s, i, unit, onPicker, onUncheck, onRelog }: {
+  s: SetState; i: number; unit: Units;
   onPicker: (field: "weight" | "reps") => void;
-  onChange: (field: keyof SetState, value: any) => void;
   onUncheck: () => void;
   onRelog: () => void;
 }) {
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 12, color: "var(--dim)", fontFamily: "monospace", width: 18, flexShrink: 0 }}>{i + 1}</span>
-        <button onClick={() => onPicker("weight")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.weight ? "var(--text)" : "var(--dim)", fontSize: s.weight ? 20 : 12, fontWeight: 800, padding: "10px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
-          {s.weight ? (s.weight % 1 === 0 ? s.weight : s.weight.toFixed(1)) : unit.toLowerCase()}
-        </button>
-        <span style={{ fontSize: 14, color: "var(--dim)", flexShrink: 0 }}>×</span>
-        <button onClick={() => onPicker("reps")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.reps ? "var(--text)" : "var(--dim)", fontSize: s.reps ? 20 : 12, fontWeight: 800, padding: "10px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
-          {s.reps || "reps"}
-        </button>
-        {/* Square checkmark — grey ✓ idle, green ✓ done */}
-        <button onClick={() => s.done ? onUncheck() : (s.weight && s.reps ? onRelog() : undefined)} style={{ width: 42, height: 42, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 22, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: (s.done || (s.weight && s.reps)) ? "pointer" : "default" }}>✓</button>
-      </div>
-      {/* Note field */}
-      <input
-        type="text"
-        placeholder="Note for this set..."
-        value={s.note}
-        onChange={(e) => onChange("note", e.target.value)}
-        onBlur={(e) => {
-          if (s.done && e.target.value !== s.note) {
-            // re-save with updated note
-            fetch("/api/client/log-set", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                sessionExerciseId: row.id,
-                sessionId,
-                exerciseId: row.exerciseId,
-                setIndex: i,
-                weight: s.weight || null,
-                reps: s.reps,
-                notes: e.target.value || null,
-              }),
-            });
-          }
-        }}
-        style={{ width: "100%", background: "transparent", border: "none", borderBottom: "1px solid var(--line)", color: "var(--dim)", fontSize: 12, padding: "4px 2px", fontFamily: "inherit", outline: "none" }}
-      />
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+      <span style={{ fontSize: 12, color: "var(--dim)", fontFamily: "monospace", width: 18, flexShrink: 0 }}>{i + 1}</span>
+      <button onClick={() => onPicker("weight")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.weight ? "var(--text)" : "var(--dim)", fontSize: s.weight ? 20 : 12, fontWeight: 800, padding: "7px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
+        {s.weight ? (s.weight % 1 === 0 ? s.weight : s.weight.toFixed(1)) : unit.toLowerCase()}
+      </button>
+      <span style={{ fontSize: 14, color: "var(--dim)", flexShrink: 0 }}>×</span>
+      <button onClick={() => onPicker("reps")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.reps ? "var(--text)" : "var(--dim)", fontSize: s.reps ? 20 : 12, fontWeight: 800, padding: "7px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
+        {s.reps || "reps"}
+      </button>
+      <button onClick={() => s.done ? onUncheck() : (s.weight && s.reps ? onRelog() : undefined)} style={{ width: 36, height: 36, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 20, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: (s.done || (s.weight && s.reps)) ? "pointer" : "default" }}>✓</button>
     </div>
   );
 }
@@ -519,7 +489,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   const defaultWeight = row.loadValue ?? 0;
   const [open, setOpen] = useState(defaultOpen);
   const [sets, setSets] = useState<SetState[]>(
-    Array.from({ length: numSets }, () => ({ weight: defaultWeight, reps: defaultReps, done: false, note: "" }))
+    Array.from({ length: numSets }, () => ({ weight: defaultWeight, reps: defaultReps, done: false }))
   );
   const [unit, setUnit] = useState<Units>(row.loadUnit ?? defaultUnit);
   const [picker, setPicker] = useState<{ setIdx: number; field: "weight" | "reps" } | null>(null);
@@ -531,6 +501,19 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   const [prBestSet, setPrBestSet] = useState<{ weight: number; reps: number; date: string } | null | "loading">("loading");
   const [newPr, setNewPr] = useState(false);
   const [prPopupOpen, setPrPopupOpen] = useState(false);
+  const [clientNote, setClientNote] = useState(row.clientNote ?? "");
+  const [noteSaved, setNoteSaved] = useState(false);
+
+  function saveNote(value: string) {
+    fetch(`/api/client/session-exercise/${row.id}/note`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note: value }),
+    }).then(() => {
+      setNoteSaved(true);
+      setTimeout(() => setNoteSaved(false), 1500);
+    });
+  }
 
   // Pre-populate sets from previously logged data for this session; also load PR baseline
   useEffect(() => {
@@ -543,7 +526,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
         setSets((prev) => prev.map((ss, i) => {
           const logged = sessionSets.find((h) => h.setIndex === i);
           if (!logged) return ss;
-          return { ...ss, weight: logged.weight ?? ss.weight, reps: logged.reps ?? ss.reps, done: true, note: logged.notes ?? "" };
+          return { ...ss, weight: logged.weight ?? ss.weight, reps: logged.reps ?? ss.reps, done: true };
         }));
       })
       .catch(() => setPrBestSet(null));
@@ -572,7 +555,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
           setIndex: idx,
           weight,
           reps: s.reps,
-          notes: s.note || null,
+
         }),
       });
       const data = await res.json();
@@ -716,13 +699,25 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
             </div>
             {sets.map((s, i) => (
               <SetRow
-                key={i} s={s} i={i} row={row} sessionId={sessionId} unit={unit}
+                key={i} s={s} i={i} unit={unit}
                 onPicker={(field) => setPicker({ setIdx: i, field })}
-                onChange={(field, value) => setSets((prev) => prev.map((ss, idx) => idx === i ? { ...ss, [field]: value } : ss))}
                 onUncheck={() => doUnlog(i)}
                 onRelog={() => doLog(i, sets)}
               />
             ))}
+            <div style={{ marginTop: 8, position: "relative" }}>
+              <textarea
+                placeholder="Note for this exercise..."
+                value={clientNote}
+                rows={2}
+                onChange={(e) => setClientNote(e.target.value)}
+                onBlur={(e) => { if (e.target.value !== (row.clientNote ?? "")) saveNote(e.target.value); }}
+                style={{ width: "100%", background: "rgba(255,255,255,.04)", border: "1px solid var(--line)", borderRadius: 8, color: "var(--dim)", fontSize: 12, padding: "7px 10px", fontFamily: "inherit", outline: "none", resize: "none", boxSizing: "border-box" }}
+              />
+              {noteSaved && (
+                <span style={{ position: "absolute", bottom: 6, right: 8, fontSize: 11, color: "var(--good)", fontWeight: 700, pointerEvents: "none" }}>✓ Saved</span>
+              )}
+            </div>
           </div>
         )}
       </div>
