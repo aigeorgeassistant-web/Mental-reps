@@ -203,6 +203,7 @@ export function SessionEditor({
         slotPoolExerciseIds: [],
         rpeEnabled: false,
         restSeconds: null,
+        clientNote: null,
         _optimistic: true,
       };
       return [...prev, optimisticRow];
