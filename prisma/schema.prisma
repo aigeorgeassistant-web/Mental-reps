@@ -157,6 +157,7 @@ model SessionExercise {
 
   rpeEnabled  Boolean @default(false)
   restSeconds Int?
+  clientNote  String?
 
   loggedSets LoggedSet[]
 }
