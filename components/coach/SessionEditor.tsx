@@ -41,7 +41,7 @@ import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
 
 type LoggedSetData = { setIndex: number; weight: number | null; reps: number | null; notes: string | null };
 type CheckInData = { sleep: number | null; mood: number | null; hydration: number | null; stress: number | null };
-type Row = SessionExercise & { exercise: Exercise; loggedSets?: LoggedSetData[] };
+type Row = SessionExercise & { exercise: Exercise; loggedSets?: LoggedSetData[]; clientNote?: string | null };
 type OptimisticRow = Row & { _optimistic: true };
 type SessionWithExercises = Session & { sessionExercises: Row[]; checkIn?: CheckInData | null };
 
@@ -1317,7 +1317,7 @@ function RowLine({
       onMouseEnter={onMouseEnter}
       onDragOver={(e) => { e.preventDefault(); onDragOver(e); }}
       onDrop={locked ? undefined : onDrop}
-      style={{ borderLeft: row.groupColor ? `4px solid ${row.groupColor}` : undefined }}
+      style={{ borderLeft: row.groupColor ? `4px solid ${row.groupColor}` : undefined, position: "relative", paddingBottom: (locked && row.clientNote) ? "24px" : undefined }}
       className={`relative flex items-center gap-2 rounded border px-2 py-2 text-sm bg-white transition-opacity ${
         optimistic ? "opacity-40 pointer-events-none" : ""
       } ${selected ? "bg-blue-50 border-blue-300" : ""}`}
@@ -1361,6 +1361,13 @@ function RowLine({
         </div>
       ) : (
         <div className="flex-1" />
+      )}
+
+      {/* Client note — shown in locked (logged) view */}
+      {locked && row.clientNote && (
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(245,158,11,.08)", borderTop: "1px solid rgba(245,158,11,.25)", padding: "3px 10px", fontSize: 11, color: "#92661a", fontWeight: 600 }}>
+          📝 {row.clientNote}
+        </div>
       )}
 
       {/* Sets×reps pill */}
