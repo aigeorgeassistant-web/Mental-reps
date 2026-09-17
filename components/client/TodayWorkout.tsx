@@ -1050,8 +1050,8 @@ function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClos
   );
 }
 
-export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRows; defaultUnit: Units }) {
-  const rows = [...session.sessionExercises].sort((a, b) => a.order - b.order);
+export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRows | null; defaultUnit: Units }) {
+  const rows = session ? [...session.sessionExercises].sort((a, b) => a.order - b.order) : [];
   const blocks = buildBlocks(rows);
   const [timer, setTimer] = useState<TimerConfig | null>(null);
   const [emomTimer, setEmomTimer] = useState<EmomConfig | null>(null);
@@ -1139,7 +1139,7 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
     return { roundSec: block.roundSec, exercises: block.rows.map((r) => { const p = parseIntervalTarget(r.target); return { name: r.exercise.name, gifUrl: r.exercise.gifUrl ?? null, reps: p.kind === "emom" ? p.reps : null }; }) };
   }
 
-  const date = session.date ? new Date(session.date).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }).toUpperCase() : "";
+  const date = session?.date ? new Date(session.date).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }).toUpperCase() : new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }).toUpperCase();
 
   return (
     <>
@@ -1153,9 +1153,9 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
 
       {timer && <IntervalTimer config={timer} onClose={() => setTimer(null)} />}
       {emomTimer && <EmomTimer config={emomTimer} onClose={() => setEmomTimer(null)} />}
-      {calOpen && <CalendarPopup sessionId={session.id} onClose={() => setCalOpen(false)} initialSessions={preloadedCalSessions} onSessionsMoved={(updated) => setPreloadedCalSessions(updated)} />}
-      {historyOpen && <HistoryOverlay session={session} onClose={() => setHistoryOpen(false)} />}
-      {checkinOpen && (
+      {calOpen && <CalendarPopup sessionId={session?.id ?? null} onClose={() => setCalOpen(false)} initialSessions={preloadedCalSessions} onSessionsMoved={(updated) => setPreloadedCalSessions(updated)} />}
+      {historyOpen && session && <HistoryOverlay session={session} onClose={() => setHistoryOpen(false)} />}
+      {checkinOpen && session && (
         <CheckinOverlay
           sessionId={session.id}
           onClose={(saved) => { setCheckinOpen(false); if (saved) setCheckinDone(true); }}
@@ -1165,12 +1165,12 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
       <header style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--line)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 10 }}>
         <div style={{ fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--steel)", fontWeight: 600 }}>{date}</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 2 }}>
-          <h1 style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.01em", color: "var(--text)", margin: 0, flex: 1 }}>{session.dayLabel}</h1>
+          <h1 style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.01em", color: "var(--text)", margin: 0, flex: 1 }}>{session ? session.dayLabel : "No session today"}</h1>
           <div style={{ display: "flex", gap: 8 }}>
             <button
-              onClick={() => setCheckinOpen(true)}
-              title="Session check-in — log how you feel to track performance trends"
-              style={{ height: 38, padding: "0 10px", borderRadius: 9, border: `1px solid ${checkinDone ? "var(--good)" : "var(--line)"}`, background: checkinDone ? "rgba(84,193,122,.12)" : "var(--panel)", color: checkinDone ? "var(--good)" : "var(--dim)", fontSize: 11, fontWeight: 700, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 5, cursor: "pointer", letterSpacing: ".04em" }}
+              onClick={() => session && setCheckinOpen(true)}
+              title={session ? "Session check-in — log how you feel to track performance trends" : "No session today"}
+              style={{ height: 38, padding: "0 10px", borderRadius: 9, border: `1px solid ${checkinDone ? "var(--good)" : "var(--line)"}`, background: checkinDone ? "rgba(84,193,122,.12)" : "var(--panel)", color: !session ? "var(--line)" : checkinDone ? "var(--good)" : "var(--dim)", fontSize: 11, fontWeight: 700, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 5, cursor: session ? "pointer" : "default", letterSpacing: ".04em", opacity: session ? 1 : 0.4 }}
             >
               <span style={{ fontSize: 13, letterSpacing: 0 }}>▁▃▅</span>
               {checkinDone ? "Logged" : "Check-in"}
@@ -1188,6 +1188,7 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
               {menuOpen && (
                 <div style={{ position: "absolute", top: 44, right: 0, zIndex: 40, background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 10, padding: "6px 0", minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,.4)" }}
                   onClick={() => setMenuOpen(false)}>
+                  {session && (<>
                   <button
                     onClick={() => setHistoryOpen(true)}
                     style={{ width: "100%", padding: "10px 16px", background: "transparent", border: "none", color: "var(--text)", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit" }}
@@ -1195,6 +1196,7 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
                     <span>📈</span> Exercise History
                   </button>
                   <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
+                  </>)}
                   <button
                     onClick={() => setShowPrograms(true)}
                     style={{ width: "100%", padding: "10px 16px", background: "transparent", border: "none", color: "var(--text)", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit" }}
@@ -1234,7 +1236,18 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
       )}
 
       <main style={{ padding: 12, paddingBottom: 100 }}>
-        {blocks.map((block, bi) => {
+        {!session && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", textAlign: "center", gap: 12 }}>
+            <div style={{ fontSize: 44 }}>🗓</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>No session today</div>
+            <div style={{ fontSize: 13, color: "var(--dim)", lineHeight: 1.5 }}>Check the calendar to see upcoming sessions or browse your programs.</div>
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button onClick={() => setCalOpen(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>📅 Calendar</button>
+              <button onClick={() => setShowPrograms(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>📋 Programs</button>
+            </div>
+          </div>
+        )}
+        {session && blocks.map((block, bi) => {
           if (block.kind === "single") {
             return <ExerciseCard key={block.row.id} row={block.row} sessionId={session.id} defaultUnit={defaultUnit} onAllDone={onAllExercisesDone} onSetDone={startRest} />;
           }
@@ -1284,6 +1297,7 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
 
           return null;
         })}
+        }
       </main>
     </>
   );
