@@ -544,6 +544,9 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   async function doLog(idx: number, newSets: SetState[]) {
     const s = newSets[idx];
     const weight = s.weight || (row.loadValue ?? null);
+    // Mark done instantly — server logs in background
+    setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: true } : ss));
+    onSetDone?.();
     try {
       const res = await fetch("/api/client/log-set", {
         method: "POST",
@@ -555,21 +558,17 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
           setIndex: idx,
           weight,
           reps: s.reps,
-
         }),
       });
       const data = await res.json();
       if (data.isPr) {
         setNewPr(true);
-        // Update displayed best set to this new PR
         const s = newSets[idx];
         if (s.weight && s.reps) setPrBestSet({ weight: s.weight, reps: s.reps, date: new Date().toISOString().slice(0, 10) });
+        setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, isPr: true } : ss));
       }
-      setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: true, isPr: data.isPr } : ss));
-      onSetDone?.();
     } catch {
-      setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: true } : ss));
-      onSetDone?.();
+      // Silent fail — set stays green, will sync on next load
     }
   }
 
