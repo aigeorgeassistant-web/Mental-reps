@@ -1297,7 +1297,6 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
 
           return null;
         })}
-        }
       </main>
     </>
   );
