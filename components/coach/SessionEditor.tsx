@@ -41,7 +41,7 @@ import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
 
 type LoggedSetData = { setIndex: number; weight: number | null; reps: number | null; notes: string | null };
 type CheckInData = { sleep: number | null; mood: number | null; hydration: number | null; stress: number | null };
-type Row = SessionExercise & { exercise: Exercise; loggedSets?: LoggedSetData[]; clientNote?: string | null };
+type Row = SessionExercise & { exercise: Exercise; loggedSets?: LoggedSetData[] };
 type OptimisticRow = Row & { _optimistic: true };
 type SessionWithExercises = Session & { sessionExercises: Row[]; checkIn?: CheckInData | null };
 
