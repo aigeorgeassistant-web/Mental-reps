@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentRole } from "@/lib/role";
 
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
-const VL_MODEL = "qwen2.5vl:7b";
+const VL_MODEL = "qwen3-vl:latest";
 
 const EXTRACT_PROMPT = `You are a data extraction tool. Extract body composition values from this InBody scan image.
 
