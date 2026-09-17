@@ -1,5 +1,6 @@
 "use client";
 // components/client/TodayWorkout.tsx — v3
+import { ClientHistoryOverlay } from "@/components/client/ClientHistoryOverlay";
 // Changes from v2:
 //   - Re-logging overwrites (upsert via sessionExerciseId+setIndex)
 //   - Superset: collapsible group card, color outline, accordion (one open at a time)
@@ -962,93 +963,6 @@ function ExerciseDetailPanel({ h }: { h: ExerciseHistory }) {
   );
 }
 
-function HistoryOverlay({ session, onClose }: { session: SessionWithRows; onClose: () => void }) {
-  const todayRows = [...session.sessionExercises].sort((a, b) => a.order - b.order);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [data, setData] = useState<Record<string, ExerciseHistory>>({});
-  const [loading, setLoading] = useState<Record<string, boolean>>({});
-
-  // Dedupe today's exercises by exerciseId
-  const todayExercises = todayRows.filter((r, i, arr) => arr.findIndex((x) => x.exerciseId === r.exerciseId) === i);
-
-  async function loadHistory(exerciseId: string, name: string) {
-    if (data[exerciseId] || loading[exerciseId]) return;
-    setLoading((p) => ({ ...p, [exerciseId]: true }));
-    try {
-      const res = await fetch(`/api/client/exercises/${exerciseId}/history`);
-      const d = await res.json();
-      const rawSets: ApiSet[] = d.sets ?? [];
-      const sessions = computeSessionAggregates(rawSets);
-      setData((p) => ({ ...p, [exerciseId]: { exerciseId, name, bestSet: d.bestSet ?? null, sessions } }));
-    } catch {}
-    setLoading((p) => ({ ...p, [exerciseId]: false }));
-  }
-
-  function toggleExpand(exerciseId: string, name: string) {
-    if (expanded === exerciseId) { setExpanded(null); return; }
-    setExpanded(exerciseId);
-    loadHistory(exerciseId, name);
-  }
-
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "var(--bg)", display: "flex", flexDirection: "column" }}>
-      {/* Header */}
-      <div style={{ padding: "14px 14px 10px", background: "var(--panel)", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 12 }}>
-        <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--text)", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>←</button>
-        <div>
-          <div style={{ fontSize: 10, letterSpacing: ".14em", color: "var(--steel)", fontWeight: 600, textTransform: "uppercase" }}>Exercise History</div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text)" }}>Today&apos;s Session</div>
-        </div>
-      </div>
-
-      {/* List */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "10px 10px 24px" }}>
-        {todayExercises.length === 0 && (
-          <div style={{ padding: 24, textAlign: "center", color: "var(--dim)", fontSize: 13 }}>No exercises in this session.</div>
-        )}
-        {todayExercises.map((row) => {
-          const h = data[row.exerciseId];
-          const isOpen = expanded === row.exerciseId;
-          const isLoading = loading[row.exerciseId];
-          return (
-            <div key={row.exerciseId} style={{ background: "var(--panel)", border: `1px solid ${isOpen ? "var(--steel)" : "var(--line)"}`, borderRadius: 12, marginBottom: 8, overflow: "hidden", transition: "border-color .2s" }}>
-              {/* Exercise row */}
-              <button
-                onClick={() => toggleExpand(row.exerciseId, row.exercise.name)}
-                style={{ width: "100%", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", color: "var(--text)", cursor: "pointer", textAlign: "left", gap: 8 }}
-              >
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>{row.exercise.name}</div>
-                  {h && (
-                    <div style={{ marginTop: 3 }}>
-                      {h.bestSet ? (
-                        <span style={{ fontSize: 11, color: "var(--good)", fontWeight: 700 }}>
-                          🏆 {h.bestSet.weight}kg × {h.bestSet.reps}
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 11, color: "var(--dim)" }}>No history yet</span>
-                      )}
-                    </div>
-                  )}
-                  {!h && !isLoading && (
-                    <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 3 }}>Tap for details</div>
-                  )}
-                  {isLoading && (
-                    <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 3 }}>Loading…</div>
-                  )}
-                </div>
-                <span style={{ fontSize: 16, color: "var(--dim)", transition: "transform .2s", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
-              </button>
-
-              {/* Expanded detail — PR, metric tabs, sparkline, recent sessions */}
-              {isOpen && h && <ExerciseDetailPanel h={h} />}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRows | null; defaultUnit: Units }) {
   const rows = session ? [...session.sessionExercises].sort((a, b) => a.order - b.order) : [];
@@ -1154,7 +1068,7 @@ export function TodayWorkout({ session, defaultUnit }: { session: SessionWithRow
       {timer && <IntervalTimer config={timer} onClose={() => setTimer(null)} />}
       {emomTimer && <EmomTimer config={emomTimer} onClose={() => setEmomTimer(null)} />}
       {calOpen && <CalendarPopup sessionId={session?.id ?? null} onClose={() => setCalOpen(false)} initialSessions={preloadedCalSessions} onSessionsMoved={(updated) => setPreloadedCalSessions(updated)} />}
-      {historyOpen && session && <HistoryOverlay session={session} onClose={() => setHistoryOpen(false)} />}
+      {historyOpen && <ClientHistoryOverlay onClose={() => setHistoryOpen(false)} defaultUnit={defaultUnit} />}
       {checkinOpen && session && (
         <CheckinOverlay
           sessionId={session.id}
