@@ -467,14 +467,14 @@ function SetRow({ s, i, unit, onPicker, onUncheck, onRelog }: {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
       <span style={{ fontSize: 12, color: "var(--dim)", fontFamily: "monospace", width: 18, flexShrink: 0 }}>{i + 1}</span>
-      <button onClick={() => onPicker("weight")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.weight ? "var(--text)" : "var(--dim)", fontSize: s.weight ? 20 : 12, fontWeight: 800, padding: "7px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
+      <button onClick={() => onPicker("weight")} style={{ width: 76, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.weight ? "var(--text)" : "var(--dim)", fontSize: 16, fontWeight: 800, padding: "5px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
         {s.weight ? (s.weight % 1 === 0 ? s.weight : s.weight.toFixed(1)) : unit.toLowerCase()}
       </button>
-      <span style={{ fontSize: 14, color: "var(--dim)", flexShrink: 0 }}>×</span>
-      <button onClick={() => onPicker("reps")} style={{ width: 80, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.reps ? "var(--text)" : "var(--dim)", fontSize: s.reps ? 20 : 12, fontWeight: 800, padding: "7px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
+      <span style={{ fontSize: 13, color: "var(--dim)", flexShrink: 0 }}>×</span>
+      <button onClick={() => onPicker("reps")} style={{ width: 60, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.reps ? "var(--text)" : "var(--dim)", fontSize: 16, fontWeight: 800, padding: "5px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
         {s.reps || "reps"}
       </button>
-      <button onClick={() => s.done ? onUncheck() : (s.weight && s.reps ? onRelog() : undefined)} style={{ width: 36, height: 36, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 20, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: (s.done || (s.weight && s.reps)) ? "pointer" : "default" }}>✓</button>
+      <button onClick={() => s.done ? onUncheck() : (s.weight && s.reps ? onRelog() : undefined)} style={{ width: 32, height: 32, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 18, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: (s.done || (s.weight && s.reps)) ? "pointer" : "default" }}>✓</button>
     </div>
   );
 }
