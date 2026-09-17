@@ -306,7 +306,7 @@ function EmomTimer({ config, onClose }: { config: EmomConfig; onClose: () => voi
 
 // ─── Calendar popup ───────────────────────────────────────────────────────────
 
-function CalendarPopup({ sessionId, onClose, initialSessions, onSessionsMoved }: { sessionId: string; onClose: () => void; initialSessions: CalSession[]; onSessionsMoved?: (sessions: CalSession[]) => void }) {
+function CalendarPopup({ sessionId, onClose, initialSessions, onSessionsMoved }: { sessionId: string | null; onClose: () => void; initialSessions: CalSession[]; onSessionsMoved?: (sessions: CalSession[]) => void }) {
   const [calSessions, setCalSessions] = useState<CalSession[]>(initialSessions);
   const [monthCursor, setMonthCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [moving, setMoving] = useState<string | null>(null); // sessionId being moved
