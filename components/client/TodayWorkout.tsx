@@ -1317,6 +1317,8 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
   const [values, setValues] = useState<Partial<Record<MetricKey, number>>>({});
   const [whyOpen, setWhyOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [scanStatus, setScanStatus] = useState<"idle" | "scanning" | "done" | "error">("idle");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleConfirm() {
     const hasAny = Object.keys(values).length > 0;
@@ -1332,6 +1334,29 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
       setSaving(false);
     }
     onClose(hasAny);
+  }
+
+  async function handleInBodyPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setScanStatus("scanning");
+    try {
+      const imageBase64 = await new Promise<string>((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res((reader.result as string).split(",")[1]);
+        reader.onerror = rej;
+        reader.readAsDataURL(file);
+      });
+      const resp = await fetch("/api/client/body-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64, mimeType: file.type }),
+      });
+      if (!resp.ok) throw new Error("scan failed");
+      setScanStatus("done");
+    } catch {
+      setScanStatus("error");
+    }
   }
 
   return (
@@ -1379,6 +1404,36 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
             Tracking how you feel alongside your workouts lets you spot patterns — like consistently weaker sessions after poor sleep, or higher stress days affecting your lifts. Over time this data powers real performance diagnostics: not just what you lifted, but <em>why</em> you performed the way you did.
           </div>
         )}
+
+        {/* InBody scan — optional */}
+        <div style={{ borderTop: "1px solid var(--line)", marginTop: 12, paddingTop: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--dim)", marginBottom: 8 }}>📊 InBody Scan <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional)</span></div>
+          <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handleInBodyPhoto} style={{ display: "none" }} />
+          {scanStatus === "idle" && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              style={{ width: "100%", height: 40, borderRadius: 10, border: "1px dashed var(--line)", background: "transparent", color: "var(--dim)", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+            >
+              📷 Photo your InBody sheet
+            </button>
+          )}
+          {scanStatus === "scanning" && (
+            <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--dim)", fontSize: 12, fontWeight: 700 }}>
+              ⏳ Reading scan...
+            </div>
+          )}
+          {scanStatus === "done" && (
+            <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--good)", fontSize: 12, fontWeight: 700, gap: 6 }}>
+              ✓ Scan saved — view in History
+            </div>
+          )}
+          {scanStatus === "error" && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+              <div style={{ color: "var(--accent)", fontSize: 12, fontWeight: 700 }}>⚠ Could not read scan</div>
+              <button onClick={() => { setScanStatus("idle"); if (fileInputRef.current) fileInputRef.current.value = ""; }} style={{ fontSize: 11, color: "var(--dim)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Try again</button>
+            </div>
+          )}
+        </div>
 
         <button
           onClick={handleConfirm}
