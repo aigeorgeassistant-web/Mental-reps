@@ -30,8 +30,7 @@ export default async function TodayPage() {
     }
   }
 
-  if (best) redirect();
+  if (best) redirect(`/client/session/${best.id}`);
 
-  // No session today — render full UI with null session
   return <TodayWorkout session={null} defaultUnit={client.units ?? "KG"} />;
 }
