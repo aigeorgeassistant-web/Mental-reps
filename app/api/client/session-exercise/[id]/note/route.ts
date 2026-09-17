@@ -1,24 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { getServerSession } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { getCurrentRole } from "@/lib/role";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const session = await getServerSession();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const client = await prisma.client.findUnique({
-    where: { authUserId: session.user.id },
-    select: { id: true },
-  });
-  if (!client) return NextResponse.json({ error: "Not a client" }, { status: 403 });
+  const { role, client } = await getCurrentRole() as any;
+  if (role !== "client" || !client) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { note } = await req.json();
 
-  // Verify this sessionExercise belongs to a session in this client's program
-  const se = await prisma.sessionExercise.findUnique({
+  // Verify this sessionExercise belongs to this client's program
+  const se = await db.sessionExercise.findUnique({
     where: { id: params.id },
     include: { session: { include: { program: { select: { clientId: true } } } } },
   });
@@ -26,7 +22,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  await prisma.sessionExercise.update({
+  await db.sessionExercise.update({
     where: { id: params.id },
     data: { clientNote: note?.trim() || null },
   });
