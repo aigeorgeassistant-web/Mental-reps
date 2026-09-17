@@ -72,6 +72,7 @@ model Client {
   checkIns          CheckIn[]
   exercisePrs       ExercisePr[]
   bundlePurchases   BundlePurchase[]
+  bodyScans         BodyScan[]
 }
 
 // The shared exercise catalog.
@@ -285,4 +286,21 @@ model CheckIn {
   hydration Int?     // 1-5
   stress    Int?     // 1-5
   notes     String?
+}
+
+model BodyScan {
+  id          String   @id @default(cuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  scannedAt   DateTime @default(now())
+  weight      Float?
+  muscleMass  Float?
+  fatPercent  Float?
+  visceralFat Float?
+  bmr         Float?
+  phaseAngle  Float?
+  rawText     String?
+  imageUrl    String?
+
+  @@index([clientId])
 }
