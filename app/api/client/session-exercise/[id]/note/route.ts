@@ -4,18 +4,18 @@ import { getCurrentRole } from "@/lib/role";
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { role, client } = await getCurrentRole() as any;
   if (role !== "client" || !client) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { id } = await params;
   const { note } = await req.json();
 
-  // Verify this sessionExercise belongs to this client's program
   const se = await db.sessionExercise.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: { session: { include: { program: { select: { clientId: true } } } } },
   });
   if (!se || se.session.program.clientId !== client.id) {
@@ -23,7 +23,7 @@ export async function PATCH(
   }
 
   await db.sessionExercise.update({
-    where: { id: params.id },
+    where: { id },
     data: { clientNote: note?.trim() || null },
   });
 
