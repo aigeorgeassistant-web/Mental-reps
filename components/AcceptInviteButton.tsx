@@ -1,7 +1,8 @@
 "use client";
 // components/AcceptInviteButton.tsx
-// Forces Google account picker via authorizationUrl params so coaches
-// testing on their own device can sign in with a different account.
+// Initiates Google OAuth. callbackURL points at the protected accept
+// route (/api/invite/accept/[token]) so the session is reliably readable
+// when the client link is written.
 
 import { authClient } from "@/lib/auth/client";
 
@@ -9,7 +10,7 @@ export function AcceptInviteButton({ token }: { token: string }) {
   async function handleSignIn() {
     await authClient.signIn.social({
       provider: "google",
-      callbackURL: `/invite/${token}`,
+      callbackURL: `/api/invite/accept/${token}`,
       fetchOptions: {
         query: {
           prompt: "select_account",
