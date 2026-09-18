@@ -300,8 +300,7 @@ model BodyScan {
   bmr         Float?
   phaseAngle  Float?
   rawText     String?
-  imageUrl    String?
-
   @@index([clientId])
 }
+
 
