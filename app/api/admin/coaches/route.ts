@@ -3,10 +3,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 
-const ADMIN_EMAIL = "ai.george.assistant@gmail.com";
+const ADMIN_EMAILS = ["ai.george.assistant@gmail.com", "milliproject01@gmail.com"];
 async function checkAdmin() {
   const { data } = await auth.getSession();
-  return data?.user?.email === ADMIN_EMAIL;
+  return ADMIN_EMAILS.includes(data?.user?.email ?? "");
 }
 
 export async function GET() {
@@ -41,3 +41,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: err.message ?? "Failed" }, { status: 500 });
   }
 }
+
