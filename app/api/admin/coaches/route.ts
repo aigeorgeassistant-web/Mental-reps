@@ -20,11 +20,19 @@ export async function GET() {
 
 export async function POST(req: Request) {
   if (!await checkAdmin()) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  const { name, email, password } = await req.json();
-  if (!name || !email || !password) return NextResponse.json({ error: "name, email, password required" }, { status: 400 });
+  const { name, email } = await req.json();
+  if (!name || !email) return NextResponse.json({ error: "name and email required" }, { status: 400 });
+
+  // Random internal password — never exposed, coach always uses Google OAuth
+  const internalPassword = crypto.randomUUID() + crypto.randomUUID();
 
   try {
-    const { data, error } = await (auth as any).admin.createUser({ name, email, password, role: "user" });
+    const { data, error } = await (auth as any).admin.createUser({
+      name,
+      email,
+      password: internalPassword,
+      role: "user",
+    });
     if (error || !data?.user) return NextResponse.json({ error: error?.message ?? "Auth user creation failed" }, { status: 400 });
     const coach = await db.coach.create({ data: { authUserId: data.user.id, name, email } });
     return NextResponse.json({ coach }, { status: 201 });
