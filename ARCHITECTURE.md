@@ -40,7 +40,9 @@ app/
     dashboard/page.tsx           renders ClientDashboard
     performance/page.tsx         renders ClientPerformancePage
     session/[sessionId]/page.tsx one specific workout session
-  admin/page.tsx            George-only: manage coaches + clients (hardcoded email check)
+  admin/page.tsx            Admin-only (`ADMIN_EMAILS` array, currently George + Milica):
+                              manage coaches + clients. Coach creation has NO password
+                              field — see "Admin-created coaches" gotcha in Auth section.
   invite/[token]/page.tsx   client accepts coach's invite link here
   sign-in/, sign-up/        Neon Auth pages
   api/                      see "API routes" table below
@@ -98,9 +100,18 @@ components/coach/ProgramBuilder.tsx        (the orchestrator — no visible UI i
   │      a session (Server Action). Click chip → tells ProgramBuilder
   │      which session to load. Drag chip to another day → moves/copies.
   │      "🗑 Select" mode → multi-select → bulk delete.
+  │      Drag chip to another day, SAME client → Move/Copy confirmation
+  │      popup (Copy never carries LoggedSet/client notes — see
+  │      `copySessionToClient` action). Different client → still copies
+  │      immediately, no popup.
   │    - Week: same sessions grouped by weekNumber. Also hosts the
   │      Template Builder (a separate mode, toggled by "+ Build Template").
   │    - Exercises: search + taxonomy filter (muscle/equipment) + add-new.
+  │    - Header: ⓘ button → `ClientProfileModal` (email/phone/health-
+  │      mobility notes/general notes/equipment/birthday, editable via
+  │      PATCH `api/coach/clients/[clientId]`). Pink banner appears next
+  │      to ▲ Performance when `client.birthday` is within 7 days
+  │      (month/day only — year on the stored date is ignored).
   │
   ├─ components/coach/SessionEditor.tsx        (center third — the actual day)
   │    One row per exercise in the session. Row layout, left to right:
@@ -151,6 +162,15 @@ app/client/today/page.tsx → components/client/TodayWorkout.tsx
 app/client/dashboard/page.tsx → components/client/ClientDashboard.tsx
   Month calendar (own sessions) + session preview + Templates tab.
 
+components/client/ProgramsOverlay.tsx (opened from `···` menu on BOTH
+  TodayWorkout and ClientDashboard, not tied to one page)
+  - "Add full program to calendar" → POST api/client/templates/[id]/apply
+    (start date + weekday picker, creates every session).
+  - Tapping one session inside an expanded program → date-picker popup →
+    POST api/client/templates/[id]/apply-single (copies just that one
+    session to the chosen date). Neither route ever copies LoggedSet or
+    client notes — both build fresh SessionExercise rows only.
+
 app/client/performance/page.tsx → components/client/ClientPerformancePage.tsx
   Same layout/logic as the coach's PerformancePage, scoped to "my own data".
 ```
@@ -173,6 +193,7 @@ correlation scatter plots vs sleep/mood/stress/hydration).
 | `api/coach/clients/[clientId]/sessions/route.ts` | GET sessions for a month + `_hasLogs` flag per session (drives calendar green painting) |
 | `api/coach/clients/[clientId]/performance/route.ts` | GET all logged data for the performance page |
 | `api/coach/clients/[clientId]/exercise-history/[exerciseId]/route.ts` | GET one exercise's recent logged sessions (right panel "Recent logs") |
+| `api/coach/clients/[clientId]/route.ts` | PATCH — coach edits their own client's profile fields (email, phone, healthNotes, generalNotes, equipment, birthday, favourite, status). Used by `ClientProfileModal` and `ClientRoster`. |
 | `api/coach/sessions/[sessionId]/route.ts` | GET one full session incl. `loggedSets` — used every time a session is opened in the builder |
 | `api/coach/sessions/[sessionId]/add-exercise/route.ts`, `.../group/route.ts` | mutate a session (most mutations are Server Actions instead — see `lib/actions/`) |
 | `api/coach/templates/route.ts` | GET all saved templates |
@@ -182,6 +203,7 @@ correlation scatter plots vs sleep/mood/stress/hydration).
 | `api/client/checkin/route.ts` | POST — upsert check-in for a session |
 | `api/client/exercises/[exerciseId]/history/route.ts` | GET client's own history for one exercise (used for pre-fill + PR badge) |
 | `api/client/performance/route.ts` | same shape as coach performance route, scoped to self |
+| `api/client/templates/[id]/apply-single/route.ts` | POST — copies ONE template session into the client's live calendar on a chosen date (vs `.../apply/route.ts`, which applies the whole program). Never copies LoggedSet/client notes. |
 | `api/admin/clients/*`, `api/admin/coaches/*` | George-only CRUD, cascade-deletes on client removal |
 | `api/ai/chat/route.ts`, `api/ai/generate/route.ts` | live chat + batch calls to home-hosted Ollama through the Cloudflare tunnel |
 | `api/auth/[...path]/route.ts` | Neon Auth's own catch-all handler |
@@ -198,7 +220,14 @@ Coach ──< Client ──< Program ──< Session ──< SessionExercise ─
 ```
 
 - **Coach**: one row per human coach (George, wife). `authUserId` links to Neon Auth.
-- **Client**: belongs to a Coach. `authUserId` is nullable — null until they accept their invite and link a Google account.
+- **Client**: belongs to a Coach. `authUserId` AND `email` are both
+  nullable — a coach can create a client with just name+phone and invite
+  them later; `email` gets written in when they accept the invite via
+  Google OAuth (see `ClientInvite` flow). Also has `birthday` (DateTime,
+  only month/day matter — used for the 7-day-out birthday banner in
+  `BuilderLeftPanel`), `favourite` (Boolean) and `status` (`ClientStatus`
+  enum: ACTIVE/INACTIVE) — both are just roster-grouping tags with no
+  other logic attached to them anywhere else in the app.
 - **Program**: either `isTemplate: true` (reusable) or a live program tied to one `clientId`.
 - **Session**: one training day inside a Program. Has `date`, `weekNumber`, `dayLabel`.
 - **SessionExercise**: one exercise placed in a session — the PRESCRIBED sets/reps/load, set by the coach.
@@ -227,6 +256,21 @@ fields here are nullable in ways that aren't obvious from the UI
   `/api/auth/*`, `/api/ai/*`, and static assets — redirects unauthenticated
   users to `/sign-in`. It does NOT itself check coach-vs-client; that's
   left to each page/route calling `getCurrentRole()`.
+- **Admin-created coaches — a real gotcha**: `app/admin/page.tsx` creates
+  new coaches with NO password field. Under the hood it calls
+  `auth.admin.createUser` with a random throwaway password and
+  `emailVerified: true` — that `emailVerified: true` is required; if it's
+  ever false, the coach's first Google OAuth sign-in silently fails and
+  just bounces back to `/sign-in` with no visible error. That admin-created
+  auth user also gets a DIFFERENT `authUserId` than the one Google OAuth
+  creates when the coach actually signs in for the first time — so
+  `lib/role.ts` has a fallback: if the `authUserId` lookup finds no Coach
+  row, it re-checks by EMAIL against the `Coach` table and re-links
+  `authUserId` to the new Google-OAuth id (one-time, self-healing on
+  first login). If a newly-created coach can't log in, check
+  `neon_auth.user.emailVerified` for their email directly in Neon's SQL
+  editor (`SELECT * FROM neon_auth.user WHERE email = '...'`) before
+  assuming it's a role/linking bug.
 - **If a login/role bug shows up**: check `lib/role.ts` first (is the
   lookup finding the right row?), then `middleware.ts` (is the route even
   reaching the page?), then `lib/auth/server.ts` (session/cookie issue).
@@ -258,3 +302,4 @@ it's usually the tunnel or Ollama not running on the home PC.
 
 - `SPEC.md` — the *design* decisions (why the stack, why no fuzzy exercise matching, pricing model, etc.)
 - `AI_CONTEXT.md` — a shorter request-phrase → file lookup table, meant for quick AI-session orientation. This file (ARCHITECTURE.md) is the deeper version for actual debugging.
+
