@@ -4,7 +4,7 @@
 // Parses name / sets×reps / weight. Fuzzy matches exercises.
 // Inline create form for unrecognized exercises.
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import type { Exercise } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -121,6 +121,18 @@ export function PasteImportModal({
   const [resolved, setResolved] = useState<ResolvedRow[]>([]);
   const [flyoutCandidates, setFlyoutCandidates] = useState<Exercise[]>([]);
   const [currentRow, setCurrentRow] = useState<ParsedRow | null>(null);
+  const [librarySearch, setLibrarySearch] = useState("");
+
+  // Reset the full-library search whenever we move to a new row.
+  useEffect(() => {
+    setLibrarySearch("");
+  }, [currentRow]);
+
+  const librarySearchResults = useMemo(() => {
+    const q = librarySearch.trim().toLowerCase();
+    if (!q) return [];
+    return exercises.filter((e) => e.name.toLowerCase().includes(q)).slice(0, 20);
+  }, [librarySearch, exercises]);
 
   // Inline create
   const [creating, setCreating] = useState(false);
@@ -372,6 +384,36 @@ export function PasteImportModal({
                     </button>
                   ))}
                 </div>
+
+                <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, marginBottom: 14 }}>
+                  <p style={{ fontSize: 11, color: "#555", fontWeight: 500, marginBottom: 6 }}>Not it? Search the full library</p>
+                  <input
+                    type="text"
+                    value={librarySearch}
+                    onChange={(e) => setLibrarySearch(e.target.value)}
+                    placeholder="Search exercises..."
+                    style={{ width: "100%", fontSize: 13, padding: "7px 10px", border: "1px solid #e5e7eb", borderRadius: 6, fontFamily: "inherit", boxSizing: "border-box", marginBottom: librarySearchResults.length > 0 ? 6 : 0 }}
+                  />
+                  {librarySearchResults.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                      {librarySearchResults.map((ex) => (
+                        <button key={ex.id} onClick={() => pickCandidate(ex)} style={{
+                          textAlign: "left", fontSize: 12, padding: "6px 10px",
+                          borderRadius: 6, border: "1px solid #e5e7eb",
+                          background: "#f9fafb", cursor: "pointer", fontFamily: "inherit",
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                        }}>
+                          <span>{ex.name}</span>
+                          <span style={{ fontSize: 10, color: "#aaa" }}>{ex.muscleGroups?.slice(0, 2).join(", ")}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {librarySearch.trim() && librarySearchResults.length === 0 && (
+                    <p style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>No matches.</p>
+                  )}
+                </div>
+
                 <div style={{ display: "flex", gap: 8, borderTop: "1px solid #f0f0f0", paddingTop: 12 }}>
                   <button onClick={skipRow} style={btn()}>Skip</button>
                   <button onClick={openCreate} style={{ ...btn(true), flex: 1 }}>+ Create new exercise</button>
@@ -418,3 +460,4 @@ export function PasteImportModal({
     </>
   );
 }
+
