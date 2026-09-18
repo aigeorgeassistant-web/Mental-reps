@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { CoachBottomMenu } from "@/components/coach/CoachBottomMenu";
 
 const ADMIN_EMAIL = "ai.george.assistant@gmail.com";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.mentalreps.work";
 
 type Coach = { id: string; name: string; email: string; authUserId: string; createdAt: string; _count?: { clients: number } };
 type Client = { id: string; name: string; email: string; authUserId: string | null; coachId: string; units: string; createdAt: string; coach: { name: string } };
@@ -25,11 +26,76 @@ const S = {
   tag: { fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "#f3f4f6", color: "#555" } as React.CSSProperties,
 };
 
-// ─── Add form ─────────────────────────────────────────────────────────────────
+// ─── Add Coach Form ───────────────────────────────────────────────────────────
 
-function AddForm({ title, coaches, onSave, onCancel }: {
-  title: string;
-  coaches?: Coach[];
+function AddCoachForm({ onSave, onCancel }: {
+  onSave: (data: { name: string; email: string }) => Promise<{ error: string | null; email?: string }>;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [createdEmail, setCreatedEmail] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    const result = await onSave({ name, email });
+    if (result.error) { setError(result.error); setSaving(false); return; }
+    setCreatedEmail(result.email ?? email);
+    setSaving(false);
+  }
+
+  function copyLink() {
+    navigator.clipboard.writeText(`${APP_URL}/sign-in`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (createdEmail) {
+    return (
+      <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+        <p style={{ fontWeight: 600, fontSize: 13, color: "#166534", marginBottom: 6 }}>✓ Coach created</p>
+        <p style={{ fontSize: 12, color: "#166534", marginBottom: 12, lineHeight: 1.6 }}>
+          Send <strong>{createdEmail}</strong> this link. They sign in with Google using that email — no password needed.
+        </p>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#fff", border: "1px solid #bbf7d0", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontFamily: "monospace", fontSize: 12, color: "#555" }}>
+          {APP_URL}/sign-in
+          <button onClick={copyLink} style={{ ...S.btn("ghost"), marginLeft: "auto", fontSize: 11, padding: "3px 10px" }}>
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <button onClick={onCancel} style={S.btn("primary")}>Done</button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+      <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>Add coach</p>
+      <p style={{ fontSize: 11, color: "#888", marginBottom: 12 }}>They'll sign in with Google — no password needed.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+        <div><label style={S.label}>Name *</label><input style={S.input} value={name} onChange={e => setName(e.target.value)} required /></div>
+        <div><label style={S.label}>Email (Google account) *</label><input style={S.input} type="email" value={email} onChange={e => setEmail(e.target.value)} required /></div>
+      </div>
+      {error && <p style={{ fontSize: 11, color: "#ef4444", marginBottom: 8 }}>{error}</p>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button type="button" onClick={onCancel} style={S.btn("ghost")}>Cancel</button>
+        <button type="submit" disabled={saving} style={{ ...S.btn("primary"), opacity: saving ? 0.5 : 1 }}>
+          {saving ? "Creating…" : "Create"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ─── Add Client Form ──────────────────────────────────────────────────────────
+
+function AddClientForm({ coaches, onSave, onCancel }: {
+  coaches: Coach[];
   onSave: (data: { name: string; email: string; password: string; coachId?: string }) => Promise<string | null>;
   onCancel: () => void;
 }) {
@@ -50,19 +116,17 @@ function AddForm({ title, coaches, onSave, onCancel }: {
 
   return (
     <form onSubmit={submit} style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16, marginBottom: 12 }}>
-      <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>{title}</p>
+      <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Add client</p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
         <div><label style={S.label}>Name *</label><input style={S.input} value={name} onChange={e => setName(e.target.value)} required /></div>
         <div><label style={S.label}>Email *</label><input style={S.input} type="email" value={email} onChange={e => setEmail(e.target.value)} required /></div>
         <div><label style={S.label}>Temporary password *</label><input style={S.input} type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} /></div>
-        {coaches && (
-          <div>
-            <label style={S.label}>Assign to coach *</label>
-            <select style={{ ...S.input }} value={coachId} onChange={e => setCoachId(e.target.value)} required>
-              {coaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-        )}
+        <div>
+          <label style={S.label}>Assign to coach *</label>
+          <select style={{ ...S.input }} value={coachId} onChange={e => setCoachId(e.target.value)} required>
+            {coaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
       </div>
       {error && <p style={{ fontSize: 11, color: "#ef4444", marginBottom: 8 }}>{error}</p>}
       <div style={{ display: "flex", gap: 8 }}>
@@ -89,7 +153,6 @@ export default function AdminPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [reassigning, setReassigning] = useState<string | null>(null);
 
-  // Auth guard
   useEffect(() => {
     authClient.getSession().then(({ data }) => {
       if (data?.user?.email !== ADMIN_EMAIL) { router.replace("/"); return; }
@@ -110,16 +173,15 @@ export default function AdminPage() {
     setLoading(false);
   }
 
-  async function addCoach({ name, email, password }: { name: string; email: string; password: string; coachId?: string }) {
+  async function addCoach({ name, email }: { name: string; email: string }) {
     const res = await fetch("/api/admin/coaches", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password }),
+      body: JSON.stringify({ name, email }),
     });
     const d = await res.json();
-    if (!res.ok) return d.error ?? "Failed";
-    setAddingCoach(false);
+    if (!res.ok) return { error: d.error ?? "Failed" };
     load();
-    return null;
+    return { error: null, email };
   }
 
   async function addClient({ name, email, password, coachId }: { name: string; email: string; password: string; coachId?: string }) {
@@ -168,13 +230,11 @@ export default function AdminPage() {
   return (
     <main style={{ minHeight: "100vh", background: "#f9fafb", fontFamily: "system-ui, sans-serif" }}>
       <CoachBottomMenu links={[{ href: "/coach/clients", label: "← Back to app" }]} />
-      {/* Header */}
       <div style={{ background: "#1a1a1a", color: "#fff", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontWeight: 700, fontSize: 15 }}>⚙️ Mental Reps Admin</span>
       </div>
 
       <div style={{ maxWidth: 820, margin: "0 auto", padding: 24 }}>
-        {/* Stats row */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
           {[
             { label: "Coaches", value: coaches.length, icon: "🏋️" },
@@ -187,7 +247,6 @@ export default function AdminPage() {
           ))}
         </div>
 
-        {/* Tabs */}
         <div style={{ display: "flex", borderBottom: "1px solid #e5e7eb", marginBottom: 20 }}>
           {(["coaches", "clients"] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} style={{
@@ -203,11 +262,10 @@ export default function AdminPage() {
 
         {loading && <p style={{ color: "#888", fontSize: 13 }}>Loading…</p>}
 
-        {/* ── Coaches tab ── */}
         {!loading && tab === "coaches" && (
           <>
             {addingCoach
-              ? <AddForm title="Add coach" onSave={addCoach} onCancel={() => setAddingCoach(false)} />
+              ? <AddCoachForm onSave={addCoach} onCancel={() => setAddingCoach(false)} />
               : <button onClick={() => setAddingCoach(true)} style={{ ...S.btn("primary"), marginBottom: 16 }}>+ Add coach</button>
             }
             {coaches.length === 0 && <p style={{ fontSize: 13, color: "#888" }}>No coaches yet.</p>}
@@ -232,11 +290,10 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* ── Clients tab ── */}
         {!loading && tab === "clients" && (
           <>
             {addingClient
-              ? <AddForm title="Add client" coaches={coaches} onSave={addClient} onCancel={() => setAddingClient(false)} />
+              ? <AddClientForm coaches={coaches} onSave={addClient} onCancel={() => setAddingClient(false)} />
               : <button onClick={() => setAddingClient(true)} style={{ ...S.btn("primary"), marginBottom: 16 }}>+ Add client</button>
             }
             {clients.length === 0 && <p style={{ fontSize: 13, color: "#888" }}>No clients yet.</p>}
@@ -271,4 +328,3 @@ export default function AdminPage() {
     </main>
   );
 }
-
