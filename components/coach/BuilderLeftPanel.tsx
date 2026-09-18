@@ -14,6 +14,7 @@ import {
   getTemplateSessions,
   type TemplateSessionRow,
 } from "@/lib/actions/template-actions";
+import { ClientProfileModal } from "./ClientProfileModal";
 
 type ClientWithPrograms = Client & {
   programs: (Program & {
@@ -64,6 +65,7 @@ export function BuilderLeftPanel({
   const [isPending, startTransition] = useTransition();
   const [dropStatus, setDropStatus] = useState<string | null>(null);
   const [pendingDrop, setPendingDrop] = useState<{ sessionId: string; targetDateKey: string } | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
@@ -243,6 +245,13 @@ export function BuilderLeftPanel({
       <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <p className="text-sm font-medium truncate">{client.name}</p>
+          <button
+            onClick={() => setShowProfileModal(true)}
+            title="Client details"
+            className="shrink-0 flex items-center justify-center w-6 h-6 rounded border border-neutral-200 text-neutral-400 hover:text-blue-600 hover:border-blue-300 transition-colors text-xs"
+          >
+            ⓘ
+          </button>
           <a
             href={`/coach/clients/${client.id}/performance`}
             title="Performance"
@@ -467,6 +476,20 @@ export function BuilderLeftPanel({
         </div>
       </div>
     )}
+    {showProfileModal && (
+      <ClientProfileModal
+        client={{
+          id: client.id,
+          name: client.name,
+          email: client.email,
+          phone: client.phone,
+          healthNotes: client.healthNotes,
+          generalNotes: client.generalNotes,
+          equipment: client.equipment,
+        }}
+        onClose={() => setShowProfileModal(false)}
+      />
+    )}
     </>
   );
 }
@@ -670,6 +693,7 @@ function buildMonthGrid(monthCursor: Date) {
   }
   return days;
 }
+
 
 
 
