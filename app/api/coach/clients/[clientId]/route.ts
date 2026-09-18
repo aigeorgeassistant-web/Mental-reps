@@ -4,7 +4,8 @@ import { NextResponse } from "next/server";
 
 // PATCH /api/coach/clients/[clientId]
 // Updates the editable profile fields for one of the coach's own clients.
-// Used by ClientProfileModal (popup inside the 3-panel builder view).
+// Used by ClientProfileModal (popup inside the 3-panel builder view) and
+// by the roster page (favourite star, active/inactive toggle).
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ clientId: string }> }
@@ -23,7 +24,7 @@ export async function PATCH(
   }
 
   const body = await req.json();
-  const { email, phone, healthNotes, generalNotes, equipment, birthday } = body ?? {};
+  const { email, phone, healthNotes, generalNotes, equipment, birthday, favourite, status } = body ?? {};
 
   const client = await db.client.update({
     where: { id: clientId },
@@ -34,6 +35,8 @@ export async function PATCH(
       generalNotes: generalNotes === undefined ? undefined : (generalNotes || null),
       equipment: Array.isArray(equipment) ? equipment : undefined,
       birthday: birthday === undefined ? undefined : (birthday ? new Date(birthday) : null),
+      favourite: typeof favourite === "boolean" ? favourite : undefined,
+      status: status === "ACTIVE" || status === "INACTIVE" ? status : undefined,
     },
   });
 
