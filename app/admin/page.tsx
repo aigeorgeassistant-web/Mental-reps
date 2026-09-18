@@ -26,6 +26,22 @@ const S = {
   tag: { fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "#f3f4f6", color: "#555" } as React.CSSProperties,
 };
 
+// ─── Copy Button ─────────────────────────────────────────────────────────────
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <button onClick={copy} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, cursor: "pointer", border: "none", background: "#f3f4f6", color: "#555", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+      {copied ? "Copied!" : "Copy"}
+    </button>
+  );
+}
+
 // ─── Add Coach Form ───────────────────────────────────────────────────────────
 
 function AddCoachForm({ onSave, onCancel }: {
@@ -36,41 +52,13 @@ function AddCoachForm({ onSave, onCancel }: {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [createdEmail, setCreatedEmail] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setError(null);
     const result = await onSave({ name, email });
-    if (result.error) { setError(result.error); setSaving(false); return; }
-    setCreatedEmail(result.email ?? email);
-    setSaving(false);
-  }
-
-  function copyLink() {
-    navigator.clipboard.writeText(`${APP_URL}/sign-in`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  if (createdEmail) {
-    return (
-      <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: 16, marginBottom: 12 }}>
-        <p style={{ fontWeight: 600, fontSize: 13, color: "#166534", marginBottom: 6 }}>✓ Coach created</p>
-        <p style={{ fontSize: 12, color: "#166534", marginBottom: 12, lineHeight: 1.6 }}>
-          Send <strong>{createdEmail}</strong> this link. They sign in with Google using that email — no password needed.
-        </p>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#fff", border: "1px solid #bbf7d0", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontFamily: "monospace", fontSize: 12, color: "#555" }}>
-          {APP_URL}/sign-in
-          <button onClick={copyLink} style={{ ...S.btn("ghost"), marginLeft: "auto", fontSize: 11, padding: "3px 10px" }}>
-            {copied ? "Copied!" : "Copy"}
-          </button>
-        </div>
-        <button onClick={onCancel} style={S.btn("primary")}>Done</button>
-      </div>
-    );
+    if (result.error) { setError(result.error); setSaving(false); }
   }
 
   return (
@@ -149,6 +137,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [addingCoach, setAddingCoach] = useState(false);
+  const [createdCoachEmail, setCreatedCoachEmail] = useState<string | null>(null);
   const [addingClient, setAddingClient] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [reassigning, setReassigning] = useState<string | null>(null);
@@ -180,6 +169,8 @@ export default function AdminPage() {
     });
     const d = await res.json();
     if (!res.ok) return { error: d.error ?? "Failed" };
+    setCreatedCoachEmail(email);
+    setAddingCoach(false);
     load();
     return { error: null, email };
   }
@@ -264,7 +255,19 @@ export default function AdminPage() {
 
         {!loading && tab === "coaches" && (
           <>
-            {addingCoach
+            {createdCoachEmail ? (
+              <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+                <p style={{ fontWeight: 600, fontSize: 13, color: "#166534", marginBottom: 6 }}>✓ Coach created</p>
+                <p style={{ fontSize: 12, color: "#166534", marginBottom: 12, lineHeight: 1.6 }}>
+                  Send <strong>{createdCoachEmail}</strong> this link. They sign in with Google using that email — no password needed.
+                </p>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #bbf7d0", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontFamily: "monospace", fontSize: 12, color: "#555" }}>
+                  <span style={{ flex: 1 }}>{APP_URL}/sign-in</span>
+                  <CopyButton text={`${APP_URL}/sign-in`} />
+                </div>
+                <button onClick={() => setCreatedCoachEmail(null)} style={S.btn("primary")}>Done</button>
+              </div>
+            ) : addingCoach
               ? <AddCoachForm onSave={addCoach} onCancel={() => setAddingCoach(false)} />
               : <button onClick={() => setAddingCoach(true)} style={{ ...S.btn("primary"), marginBottom: 16 }}>+ Add coach</button>
             }
@@ -328,3 +331,4 @@ export default function AdminPage() {
     </main>
   );
 }
+
