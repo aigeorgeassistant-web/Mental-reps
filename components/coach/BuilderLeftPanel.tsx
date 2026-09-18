@@ -63,6 +63,7 @@ export function BuilderLeftPanel({
   const [showFilters, setShowFilters] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [dropStatus, setDropStatus] = useState<string | null>(null);
+  const [pendingDrop, setPendingDrop] = useState<{ sessionId: string; targetDateKey: string } | null>(null);
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
@@ -124,21 +125,48 @@ export function BuilderLeftPanel({
     });
   }
 
-  async function handleDropOnCalendar(sessionId: string, sourceClientId: string, targetDateKey: string) {
+  function handleDropOnCalendar(sessionId: string, sourceClientId: string, targetDateKey: string) {
     if (deleteMode) return;
     if (sourceClientId === clientId) {
-      setDropStatus("Moving…");
-      const result = await moveSessionToDate(sessionId, targetDateKey);
+      // Same client, different day — ask coach whether to move or copy.
+      setPendingDrop({ sessionId, targetDateKey });
+      return;
+    }
+    // Different client — unchanged behavior: always copies.
+    (async () => {
+      setDropStatus("Copying…");
+      const result = await copySessionToClient(sessionId, clientId, targetDateKey);
       if (result.success) {
         router.refresh();
-        setDropStatus("✓ Moved");
+        setDropStatus("✓ Copied");
         setTimeout(() => setDropStatus(null), 2000);
       } else {
         setDropStatus(`Error: ${result.error}`);
         setTimeout(() => setDropStatus(null), 3000);
       }
-      return;
+    })();
+  }
+
+  async function confirmMoveDrop() {
+    if (!pendingDrop) return;
+    const { sessionId, targetDateKey } = pendingDrop;
+    setPendingDrop(null);
+    setDropStatus("Moving…");
+    const result = await moveSessionToDate(sessionId, targetDateKey);
+    if (result.success) {
+      router.refresh();
+      setDropStatus("✓ Moved");
+      setTimeout(() => setDropStatus(null), 2000);
+    } else {
+      setDropStatus(`Error: ${result.error}`);
+      setTimeout(() => setDropStatus(null), 3000);
     }
+  }
+
+  async function confirmCopyDrop() {
+    if (!pendingDrop) return;
+    const { sessionId, targetDateKey } = pendingDrop;
+    setPendingDrop(null);
     setDropStatus("Copying…");
     const result = await copySessionToClient(sessionId, clientId, targetDateKey);
     if (result.success) {
@@ -210,6 +238,7 @@ export function BuilderLeftPanel({
   }
 
   return (
+    <>
     <div className="w-1/4 border-r flex flex-col">
       <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
@@ -406,6 +435,39 @@ export function BuilderLeftPanel({
         )}
       </div>
     </div>
+    {pendingDrop && (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
+        <div style={{ background: "#fff", borderRadius: 10, width: 280, overflow: "hidden", boxShadow: "0 10px 30px rgba(0,0,0,0.2)" }}>
+          <div style={{ padding: "14px 16px", borderBottom: "1px solid #e5e7eb" }}>
+            <p style={{ fontWeight: 600, fontSize: 14 }}>Move or copy?</p>
+            <p style={{ fontSize: 11, color: "#888", marginTop: 3 }}>
+              Copy keeps the original session in place and creates a new one on the target day. Logged sets and client notes are never copied.
+            </p>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", padding: 12, gap: 8 }}>
+            <button
+              onClick={confirmMoveDrop}
+              style={{ padding: "9px", borderRadius: 8, border: "none", cursor: "pointer", background: "#1a1a1a", color: "#fff", fontSize: 13, fontWeight: 600 }}
+            >
+              Move
+            </button>
+            <button
+              onClick={confirmCopyDrop}
+              style={{ padding: "9px", borderRadius: 8, border: "1px solid #d1d5db", cursor: "pointer", background: "#fff", color: "#1a1a1a", fontSize: 13, fontWeight: 600 }}
+            >
+              Copy
+            </button>
+            <button
+              onClick={() => setPendingDrop(null)}
+              style={{ padding: "8px", borderRadius: 8, border: "none", cursor: "pointer", background: "transparent", color: "#888", fontSize: 12 }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -608,5 +670,6 @@ function buildMonthGrid(monthCursor: Date) {
   }
   return days;
 }
+
 
 
