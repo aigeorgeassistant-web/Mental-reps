@@ -14,11 +14,6 @@ const EQUIPMENT = [
   "Bench",
 ];
 
-// Note: there's no invite-email step yet — Neon Auth doesn't currently
-// have a built-in invite/restricted-signup mechanism (see SPEC.md §3).
-// For now this just creates the Client row with authUserId left null;
-// linking it to a real login happens once the client signs up and a
-// matching step (not yet built) connects their authUserId by email.
 export default async function NewClientPage() {
   const { role, coach } = await getCurrentRole();
   if (role !== "coach" || !coach) redirect("/");
@@ -34,7 +29,7 @@ export default async function NewClientPage() {
       data: {
         coachId: coach.id,
         name: formData.get("name") as string,
-        email: formData.get("email") as string,
+        email: (formData.get("email") as string) || null,
         phone: (formData.get("phone") as string) || null,
         healthNotes: (formData.get("healthNotes") as string) || null,
         generalNotes: (formData.get("generalNotes") as string) || null,
@@ -67,11 +62,12 @@ export default async function NewClientPage() {
         </div>
 
         <div>
-          <label className="mb-1 block text-xs text-neutral-500">Email</label>
+          <label className="mb-1 block text-xs text-neutral-500">
+            Email <span className="text-neutral-400">(optional — can invite later)</span>
+          </label>
           <input
             name="email"
             type="email"
-            required
             className="w-full rounded-md border px-3 py-2 text-sm"
             placeholder="fatima@email.com"
           />
