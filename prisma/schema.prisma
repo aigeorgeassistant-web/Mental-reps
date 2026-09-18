@@ -57,7 +57,7 @@ model Client {
   coach         Coach    @relation(fields: [coachId], references: [id])
   authUserId    String?  @unique
   name          String
-  email         String
+  email         String?
   phone         String?
   healthNotes   String?
   generalNotes  String?
@@ -304,3 +304,4 @@ model BodyScan {
 
   @@index([clientId])
 }
+
