@@ -26,7 +26,22 @@ type ClientProfile = {
   healthNotes: string | null;
   generalNotes: string | null;
   equipment: string[];
+  birthday: string | Date | null;
 };
+
+function toDateInputValue(d: string | Date | null): string {
+  if (!d) return "";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function formatBirthdayDisplay(d: string | Date | null): string {
+  if (!d) return "Not set";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "Not set";
+  return `${String(date.getDate()).padStart(2, "0")}.${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
 
 export function ClientProfileModal({
   client,
@@ -45,6 +60,7 @@ export function ClientProfileModal({
   const [healthNotes, setHealthNotes] = useState(client.healthNotes ?? "");
   const [generalNotes, setGeneralNotes] = useState(client.generalNotes ?? "");
   const [equipment, setEquipment] = useState<string[]>(client.equipment ?? []);
+  const [birthday, setBirthday] = useState<string>(toDateInputValue(client.birthday));
 
   function toggleEquipment(item: string) {
     setEquipment((prev) =>
@@ -58,6 +74,7 @@ export function ClientProfileModal({
     setHealthNotes(client.healthNotes ?? "");
     setGeneralNotes(client.generalNotes ?? "");
     setEquipment(client.equipment ?? []);
+    setBirthday(toDateInputValue(client.birthday));
     setError(null);
     setEditing(false);
   }
@@ -69,7 +86,7 @@ export function ClientProfileModal({
       const res = await fetch(`/api/coach/clients/${client.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, phone, healthNotes, generalNotes, equipment }),
+        body: JSON.stringify({ email, phone, healthNotes, generalNotes, equipment, birthday: birthday || null }),
       });
       if (!res.ok) {
         const d = await res.json();
@@ -139,6 +156,21 @@ export function ClientProfileModal({
               />
             ) : (
               <p style={{ fontSize: 13, color: client.phone ? "#1a1a1a" : "#aaa" }}>{client.phone || "Not set"}</p>
+            )}
+          </div>
+
+          {/* Birthday */}
+          <div>
+            <p style={{ fontSize: 10, color: "#888", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Birthday</p>
+            {editing ? (
+              <input
+                type="date"
+                value={birthday}
+                onChange={(e) => setBirthday(e.target.value)}
+                style={{ width: "100%", fontSize: 13, padding: "7px 10px", border: "1px solid #e5e7eb", borderRadius: 6, fontFamily: "inherit", boxSizing: "border-box" }}
+              />
+            ) : (
+              <p style={{ fontSize: 13, color: client.birthday ? "#1a1a1a" : "#aaa" }}>{formatBirthdayDisplay(client.birthday)}</p>
             )}
           </div>
 
@@ -226,3 +258,4 @@ export function ClientProfileModal({
     </div>
   );
 }
+
