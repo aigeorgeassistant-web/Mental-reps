@@ -6,7 +6,7 @@ import { authClient } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
 import { CoachBottomMenu } from "@/components/coach/CoachBottomMenu";
 
-const ADMIN_EMAIL = "ai.george.assistant@gmail.com";
+const ADMIN_EMAILS = ["ai.george.assistant@gmail.com", "milliproject01@gmail.com"];
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.mentalreps.work";
 
 type Coach = { id: string; name: string; email: string; authUserId: string; createdAt: string; _count?: { clients: number } };
@@ -144,7 +144,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     authClient.getSession().then(({ data }) => {
-      if (data?.user?.email !== ADMIN_EMAIL) { router.replace("/"); return; }
+      if (!ADMIN_EMAILS.includes(data?.user?.email ?? "")) { router.replace("/"); return; }
       setAuthChecked(true);
     });
   }, []);
@@ -331,4 +331,5 @@ export default function AdminPage() {
     </main>
   );
 }
+
 
