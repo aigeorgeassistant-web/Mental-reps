@@ -15,6 +15,11 @@ enum Units {
   LB
 }
 
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum LoadType {
   FIXED
   PERCENTAGE
@@ -64,6 +69,8 @@ model Client {
   equipment     String[]
   units         Units    @default(KG)
   birthday      DateTime?
+  favourite     Boolean  @default(false)
+  status        ClientStatus @default(ACTIVE)
   createdAt     DateTime @default(now())
 
   programs          Program[]
@@ -303,6 +310,7 @@ model BodyScan {
   rawText     String?
   @@index([clientId])
 }
+
 
 
 
