@@ -5,9 +5,9 @@ import { getCurrentRole } from "@/lib/role";
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
 const VL_MODEL = "qwen3-vl:latest";
 
-const EXTRACT_PROMPT = `You are a data extraction tool. Extract body composition values from this InBody scan image.
+const EXTRACT_PROMPT = `You are a precise data extraction tool reading an InBody body composition scan sheet.
 
-Return ONLY a valid JSON object with these exact keys (use null if a value is not visible):
+Return ONLY a valid JSON object with these exact keys (use null if not found):
 {
   "weight": number or null,
   "muscleMass": number or null,
@@ -15,14 +15,26 @@ Return ONLY a valid JSON object with these exact keys (use null if a value is no
   "visceralFat": number or null,
   "bmr": number or null,
   "phaseAngle": number or null,
-  "rawText": "brief summary of what you read"
+  "rawText": "one sentence summary of what you read"
 }
 
-Rules:
-- Numbers only, no units
-- fatPercent is a percentage (e.g. 18.5 not 0.185)
-- If a field is missing from the sheet, use null
-- Return ONLY the JSON object, no other text`;
+Extraction rules — read carefully:
+
+WEIGHT: The total body weight in kg. Found in Muscle-Fat Analysis section next to "Weight (kg)", or in Body Composition History table — use the RIGHTMOST (most recent) column value.
+
+MUSCLE MASS (muscleMass): Skeletal Muscle Mass (SMM) in kg. Found labeled "SMM" or "Skeletal Muscle Mass" in Muscle-Fat Analysis. In the history table use the rightmost column. Do NOT use arm/leg segmental values.
+
+FAT PERCENT (fatPercent): Percent Body Fat (PBF) as a percentage number. Found in Obesity Analysis section labeled "PBF" or "Percent Body Fat" — it is a % value typically between 5 and 50. In history table labeled "PBF (%)" — use rightmost column. Do NOT confuse with BMI, do NOT use Body Fat Mass (which is in kg).
+
+VISCERAL FAT (visceralFat): A single number. May appear as "Visceral Fat Level" (a score 1-20), or "VFA" Visceral Fat Area in cm². Just extract the number, ignore units.
+
+BMR: Basal Metabolic Rate in kcal. Found in Research Parameters section labeled "Basal Metabolic Rate". Extract only the number, not the range in parentheses.
+
+PHASE ANGLE (phaseAngle): Found labeled "Whole Body Phase Angle" or "φ()" in degrees. Typically between 3 and 10.
+
+PRIORITY: If a Body Composition History table exists at the bottom of the sheet, prefer the RIGHTMOST column values for weight, muscleMass, and fatPercent as these are the most recent measurements.
+
+Return ONLY the JSON object, no explanation, no markdown, no units.`;
 
 function parseFloat_safe(val: unknown): number | null {
   if (val === null || val === undefined) return null;
