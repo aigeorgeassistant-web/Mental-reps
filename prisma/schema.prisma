@@ -63,6 +63,7 @@ model Client {
   generalNotes  String?
   equipment     String[]
   units         Units    @default(KG)
+  birthday      DateTime?
   createdAt     DateTime @default(now())
 
   programs          Program[]
@@ -302,5 +303,6 @@ model BodyScan {
   rawText     String?
   @@index([clientId])
 }
+
 
 
