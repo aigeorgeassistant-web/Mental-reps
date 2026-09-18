@@ -23,7 +23,7 @@ export async function PATCH(
   }
 
   const body = await req.json();
-  const { email, phone, healthNotes, generalNotes, equipment } = body ?? {};
+  const { email, phone, healthNotes, generalNotes, equipment, birthday } = body ?? {};
 
   const client = await db.client.update({
     where: { id: clientId },
@@ -33,6 +33,7 @@ export async function PATCH(
       healthNotes: healthNotes === undefined ? undefined : (healthNotes || null),
       generalNotes: generalNotes === undefined ? undefined : (generalNotes || null),
       equipment: Array.isArray(equipment) ? equipment : undefined,
+      birthday: birthday === undefined ? undefined : (birthday ? new Date(birthday) : null),
     },
   });
 
