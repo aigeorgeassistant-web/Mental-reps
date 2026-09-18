@@ -36,7 +36,7 @@ export default async function EditClientPage({
       where: { id: clientId },
       data: {
         name: formData.get("name") as string,
-        email: formData.get("email") as string,
+        email: (formData.get("email") as string) || null,
         phone: (formData.get("phone") as string) || null,
         healthNotes: (formData.get("healthNotes") as string) || null,
         generalNotes: (formData.get("generalNotes") as string) || null,
@@ -62,8 +62,15 @@ export default async function EditClientPage({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs text-neutral-500">Email</label>
-          <input name="email" type="email" required defaultValue={client.email} className="w-full rounded-md border px-3 py-2 text-sm" />
+          <label className="mb-1 block text-xs text-neutral-500">
+            Email <span className="text-neutral-400">(optional)</span>
+          </label>
+          <input
+            name="email"
+            type="email"
+            defaultValue={client.email ?? ""}
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          />
         </div>
 
         <div>
