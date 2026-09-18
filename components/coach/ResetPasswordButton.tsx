@@ -2,7 +2,7 @@
 // components/coach/ResetPasswordButton.tsx
 // TODO: wire up actual password reset via Neon Auth
 
-export function ResetPasswordButton({ clientEmail }: { clientEmail: string }) {
+export function ResetPasswordButton({ clientEmail }: { clientEmail: string | null }) {
   return (
     <button
       disabled
