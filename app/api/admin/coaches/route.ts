@@ -32,6 +32,7 @@ export async function POST(req: Request) {
       email,
       password: internalPassword,
       role: "user",
+      emailVerified: true,
     });
     if (error || !data?.user) return NextResponse.json({ error: error?.message ?? "Auth user creation failed" }, { status: 400 });
     const coach = await db.coach.create({ data: { authUserId: data.user.id, name, email } });
