@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     data: { clientId, expiresAt },
   });
 
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3001";
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.mentalreps.work";
   const inviteUrl = `${base}/invite/${invite.token}`;
 
   return NextResponse.json({ inviteUrl });
