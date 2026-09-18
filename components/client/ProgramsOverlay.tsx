@@ -17,10 +17,136 @@ type TemplateRow = {
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 function todayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// ─── Single Session Date Picker ───────────────────────────────────────────────
+
+function SingleSessionPopup({ templateId, session, onClose, onAdded }: {
+  templateId: string;
+  session: TemplateSession;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const today = new Date();
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth()); // 0-indexed
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  function prevMonth() {
+    if (month === 0) { setYear(y => y - 1); setMonth(11); }
+    else setMonth(m => m - 1);
+  }
+  function nextMonth() {
+    if (month === 11) { setYear(y => y + 1); setMonth(0); }
+    else setMonth(m => m + 1);
+  }
+
+  async function handleDayTap(day: number) {
+    const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    setLoading(true);
+    setError(null);
+    const res = await fetch(`/api/client/templates/${templateId}/apply-single`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ templateSessionId: session.id, dateKey }),
+    });
+    const data = await res.json();
+    setLoading(false);
+    if (data.ok) {
+      setStatus(`✓ Added to ${MONTH_NAMES[month]} ${day}`);
+      setTimeout(() => { onAdded(); onClose(); }, 1200);
+    } else {
+      setError(data.error ?? "Something went wrong.");
+    }
+  }
+
+  // Build calendar grid
+  const cells: (number | null)[] = [
+    ...Array(firstDay).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const todayD = today.getDate();
+  const todayM = today.getMonth();
+  const todayY = today.getFullYear();
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+      <div style={{ background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 14, width: 300, overflow: "hidden" }}>
+        {/* Header */}
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <p style={{ fontWeight: 600, fontSize: 14 }}>Pick a date</p>
+            <p style={{ fontSize: 11, color: "var(--dim)", marginTop: 2 }}>{session.dayLabel}</p>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--dim)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ padding: "12px 16px" }}>
+          {/* Month nav */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <button onClick={prevMonth} style={{ background: "none", border: "none", color: "var(--dim)", fontSize: 18, cursor: "pointer", padding: "2px 8px" }}>‹</button>
+            <p style={{ fontSize: 13, fontWeight: 600 }}>{MONTH_NAMES[month]} {year}</p>
+            <button onClick={nextMonth} style={{ background: "none", border: "none", color: "var(--dim)", fontSize: 18, cursor: "pointer", padding: "2px 8px" }}>›</button>
+          </div>
+
+          {/* Day labels */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 }}>
+            {DAY_LABELS.map(l => (
+              <p key={l} style={{ textAlign: "center", fontSize: 9, color: "var(--dim)", fontWeight: 600, textTransform: "uppercase", padding: "2px 0" }}>{l}</p>
+            ))}
+          </div>
+
+          {/* Calendar grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+            {cells.map((day, i) => {
+              const isToday = day !== null && day === todayD && month === todayM && year === todayY;
+              const isPast = day !== null && new Date(year, month, day) < new Date(todayY, todayM, todayD);
+              return (
+                <button
+                  key={i}
+                  disabled={day === null || isPast || loading}
+                  onClick={() => day && !isPast && handleDayTap(day)}
+                  style={{
+                    height: 34,
+                    borderRadius: 6,
+                    border: isToday ? "1px solid var(--steel)" : "none",
+                    background: "transparent",
+                    color: day === null ? "transparent" : isPast ? "var(--dim)" : "var(--text)",
+                    fontSize: 12,
+                    cursor: day === null || isPast ? "default" : "pointer",
+                    opacity: isPast ? 0.35 : 1,
+                    fontWeight: isToday ? 700 : 400,
+                  }}
+                >
+                  {day ?? ""}
+                </button>
+              );
+            })}
+          </div>
+
+          {error && <p style={{ fontSize: 11, color: "#f87171", marginTop: 10 }}>{error}</p>}
+          {status && <p style={{ fontSize: 11, color: "#4ade80", marginTop: 10 }}>{status}</p>}
+          {loading && <p style={{ fontSize: 11, color: "var(--dim)", marginTop: 10 }}>Adding…</p>}
+
+          <button onClick={onClose} style={{ width: "100%", marginTop: 12, padding: "9px", borderRadius: 8, border: "1px solid var(--line)", background: "transparent", color: "var(--dim)", fontSize: 12, cursor: "pointer" }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── Apply Popup ──────────────────────────────────────────────────────────────
@@ -112,6 +238,7 @@ export function ProgramsOverlay({ onClose, onApplied }: { onClose: () => void; o
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [applyTarget, setApplyTarget] = useState<TemplateRow | null>(null);
+  const [singleTarget, setSingleTarget] = useState<{ template: TemplateRow; session: TemplateSession } | null>(null);
 
   useEffect(() => {
     fetch("/api/client/templates")
@@ -130,6 +257,15 @@ export function ProgramsOverlay({ onClose, onApplied }: { onClose: () => void; o
           template={applyTarget}
           onClose={() => setApplyTarget(null)}
           onApplied={() => { setApplyTarget(null); onApplied(); onClose(); }}
+        />
+      )}
+
+      {singleTarget && (
+        <SingleSessionPopup
+          templateId={singleTarget.template.id}
+          session={singleTarget.session}
+          onClose={() => setSingleTarget(null)}
+          onAdded={onApplied}
         />
       )}
 
@@ -172,12 +308,23 @@ export function ProgramsOverlay({ onClose, onApplied }: { onClose: () => void; o
                             return (
                               <div key={w} style={{ marginBottom: 8 }}>
                                 <p style={{ fontSize: 10, color: "var(--dim)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>Week {w}</p>
-                                {days.map((d) => <p key={d.id} style={{ fontSize: 12, color: "var(--text)", paddingLeft: 8, paddingBottom: 3 }}>· {d.dayLabel}</p>)}
+                                {days.map((d) => (
+                                  <button
+                                    key={d.id}
+                                    onClick={() => setSingleTarget({ template: t, session: d })}
+                                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: "5px 8px", borderRadius: 6, textAlign: "left" }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(92,122,138,0.08)")}
+                                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                                  >
+                                    <span style={{ fontSize: 12, color: "var(--text)" }}>· {d.dayLabel}</span>
+                                    <span style={{ fontSize: 10, color: "var(--steel)", fontWeight: 600 }}>+ Add</span>
+                                  </button>
+                                ))}
                               </div>
                             );
                           })}
                           <button onClick={() => setApplyTarget(t)} style={{ width: "100%", marginTop: 10, padding: "10px", borderRadius: 8, border: "none", cursor: "pointer", background: "var(--steel)", color: "#fff", fontSize: 13, fontWeight: 600 }}>
-                            Add to my calendar
+                            Add full program to calendar
                           </button>
                         </div>
                       )}
