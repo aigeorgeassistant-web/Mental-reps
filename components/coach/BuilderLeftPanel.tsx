@@ -28,6 +28,25 @@ type ProgramWithSessions = ClientWithPrograms["programs"][number];
 type Tab = "week" | "month" | "exercises";
 type TemplateModeState = { programId: string; name: string };
 
+// Returns "dd.mm." if the client's birthday falls within the next 7 days
+// (today counts as day 0), otherwise null. Year on the stored date is ignored.
+function upcomingBirthdayLabel(birthday: Date | string | null | undefined): string | null {
+  if (!birthday) return null;
+  const b = new Date(birthday);
+  if (isNaN(b.getTime())) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let next = new Date(today.getFullYear(), b.getMonth(), b.getDate());
+  if (next < today) next = new Date(today.getFullYear() + 1, b.getMonth(), b.getDate());
+
+  const diffDays = Math.round((next.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0 || diffDays > 7) return null;
+
+  return `${String(b.getDate()).padStart(2, "0")}.${String(b.getMonth() + 1).padStart(2, "0")}.`;
+}
+
 export function BuilderLeftPanel({
   clientId,
   client,
@@ -102,6 +121,8 @@ export function BuilderLeftPanel({
     }
     return map;
   }, [sessions]);
+
+  const birthdayLabel = useMemo(() => upcomingBirthdayLabel(client.birthday), [client.birthday]);
 
   const hasActiveFilter = muscleFilter.length > 0 || equipFilter.length > 0;
 
@@ -259,6 +280,14 @@ export function BuilderLeftPanel({
           >
             ▲
           </a>
+          {birthdayLabel && (
+            <span
+              title="Upcoming birthday"
+              className="shrink-0 text-[11px] font-medium text-pink-600 bg-pink-50 border border-pink-200 rounded px-2 py-1 whitespace-nowrap"
+            >
+              🎂 Upcoming birthday on {birthdayLabel}
+            </span>
+          )}
         </div>
         {dropStatus && (
           <span className={`text-xs ${dropStatus.startsWith("✓") ? "text-green-600" : dropStatus.includes("…") ? "text-blue-500" : "text-red-500"}`}>
@@ -486,6 +515,7 @@ export function BuilderLeftPanel({
           healthNotes: client.healthNotes,
           generalNotes: client.generalNotes,
           equipment: client.equipment,
+          birthday: client.birthday,
         }}
         onClose={() => setShowProfileModal(false)}
       />
@@ -693,6 +723,7 @@ function buildMonthGrid(monthCursor: Date) {
   }
   return days;
 }
+
 
 
 
