@@ -36,23 +36,24 @@ export async function GET(
     where: { authUserId: user.id },
   });
 
+  // If this Google account is already linked to a DIFFERENT client, just redirect.
   if (existing && existing.id !== invite.clientId) {
     return NextResponse.redirect(new URL("/client/today", BASE));
   }
 
-  if (!existing) {
-    await db.client.update({
-      where: { id: invite.clientId },
-      data: {
-        authUserId: user.id,
-        ...(user.email ? { email: user.email } : {}),
-      },
-    });
-    await db.clientInvite.update({
-      where: { token },
-      data: { usedAt: new Date() },
-    });
-  }
+  // Same client or not yet linked — always write authUserId + email.
+  // Idempotent: safe to run multiple times (e.g. OAuth redirect fires twice).
+  await db.client.update({
+    where: { id: invite.clientId },
+    data: {
+      authUserId: user.id,
+      ...(user.email ? { email: user.email } : {}),
+    },
+  });
+  await db.clientInvite.update({
+    where: { token },
+    data: { usedAt: new Date() },
+  });
 
   return NextResponse.redirect(new URL("/client/today", BASE));
 }
