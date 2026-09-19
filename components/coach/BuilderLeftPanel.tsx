@@ -442,21 +442,30 @@ export function BuilderLeftPanel({
               <EmptyState text="No exercises match." />
             ) : (
               filteredExercises.map((ex) => {
-                const hasGif = !!ex.gifUrl && ex.gifUrl.includes("media.mentalreps.work");
+                const mediaType = !ex.gifUrl || !ex.gifUrl.includes("media.mentalreps.work")
+                  ? "none"
+                  : /\.(webm|mp4)$/i.test(ex.gifUrl)
+                    ? "video"
+                    : "gif";
+                const dotStyle =
+                  mediaType === "video" ? { background: "#16a34a", borderColor: "#16a34a" } :
+                  mediaType === "gif"   ? { background: "#d97706", borderColor: "#d97706" } :
+                                         { background: "transparent", borderColor: "#d1d5db" };
+                const dotTitle =
+                  mediaType === "video" ? "WebM — ready" :
+                  mediaType === "gif"   ? "GIF — replace with WebM" :
+                                         "No media — click to add";
                 return (
                   <div key={ex.id} className="flex items-center rounded hover:bg-neutral-100 group">
-                    {/* GIF indicator dot — green = has GIF, grey = missing */}
+                    {/* Media indicator dot — green = WebM, amber = GIF, grey = none */}
                     <button
                       onClick={() => onPreviewExercise(ex.id)}
-                      title={hasGif ? "Has GIF" : "Missing GIF — click to add"}
+                      title={dotTitle}
                       className="pl-2 pr-1 py-2 shrink-0 flex items-center"
                     >
                       <span
                         className="block w-2 h-2 rounded-full border transition-colors"
-                        style={hasGif
-                          ? { background: "#16a34a", borderColor: "#16a34a" }
-                          : { background: "transparent", borderColor: "#d1d5db" }
-                        }
+                        style={dotStyle}
                       />
                     </button>
                     <button onClick={() => onSelectExercise(ex.id)} className="flex-1 text-left px-1 py-2 text-sm truncate">
@@ -723,6 +732,7 @@ function buildMonthGrid(monthCursor: Date) {
   }
   return days;
 }
+
 
 
 
