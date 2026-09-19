@@ -304,8 +304,19 @@ function DetailView({ exercise, currentClientId }: { exercise: Exercise | null; 
         <button onClick={() => setEditing(true)} className="shrink-0 text-xs text-neutral-400 hover:text-neutral-700 underline">Edit</button>
       </div>
       {exercise.gifUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={exercise.gifUrl} alt={exercise.name} className="w-full rounded border bg-neutral-50" />
+        /\.(webm|mp4)$/i.test(exercise.gifUrl) ? (
+          <video
+            src={exercise.gifUrl}
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full rounded border bg-neutral-50"
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={exercise.gifUrl} alt={exercise.name} className="w-full rounded border bg-neutral-50" />
+        )
       )}
       {embedUrl && <iframe src={embedUrl} className="w-full aspect-video rounded border" allowFullScreen />}
       {!exercise.gifUrl && !embedUrl && <p className="text-xs text-neutral-400">No demo media for this exercise yet.</p>}
@@ -904,4 +915,5 @@ export function BuilderRightPanel({
     </div>
   );
 }
+
 
