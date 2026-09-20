@@ -4,6 +4,7 @@
 //   • + Set per exercise (extra set beyond prescribed)
 //   • + Exercise (search → add ad-hoc exercise, logs directly, no SessionExercise written)
 // All logging goes to /api/coach/live/log-set (coach-role route).
+// DrumPicker and value generators are copied verbatim from TodayWorkout.tsx for parity.
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import type { Exercise, SessionExercise } from "@prisma/client";
@@ -33,81 +34,135 @@ type AnyExercise = LiveExercise | AdHocExercise;
 
 type SetState = { weight: number; reps: number; done: boolean; isPr?: boolean };
 
-// ─── DrumPicker ───────────────────────────────────────────────────────────────
+// ─── Value generators (verbatim from TodayWorkout.tsx) ────────────────────────
 
-const ITEM_H = 48;
-const PAD = ITEM_H * 2;
-
-function makeWeightValues(current: number): number[] {
-  const vals = new Set<number>();
-  for (let i = 0; i <= 300; i += 0.5) vals.add(i);
-  vals.add(current);
-  return Array.from(vals).sort((a, b) => a - b);
-}
-
-function makeRepValues(current: number): number[] {
+function makeWeightValues(center: number): number[] {
   const vals: number[] = [];
-  for (let i = 1; i <= 100; i++) vals.push(i);
-  if (!vals.includes(current)) vals.push(current);
-  return vals.sort((a, b) => a - b);
+  for (let v = Math.max(0, center - 75); v <= center + 75; v += 2.5) vals.push(Math.round(v * 10) / 10);
+  return vals;
 }
 
-function DrumPicker({
-  label,
-  values,
-  initial,
-  onConfirm,
-  onCancel,
-}: {
-  label: string;
-  values: number[];
-  initial: number;
-  onConfirm: (v: number) => void;
-  onCancel: () => void;
+function makeRepValues(center: number): number[] {
+  const vals: number[] = [];
+  for (let v = Math.max(1, center - 10); v <= center + 10; v++) vals.push(v);
+  return vals;
+}
+
+// ─── Drum picker (verbatim from TodayWorkout.tsx) ──────────────────────────────
+
+function DrumPicker({ values, initial, onConfirm, onClose, label }: {
+  values: number[]; initial: number; onConfirm: (v: number) => void; onClose: () => void; label: string;
 }) {
-  const [selected, setSelected] = useState(initial);
+  const ITEM_H = 48;
+  const VISIBLE = 5;
+  const PAD = ITEM_H * Math.floor(VISIBLE / 2);
+
+  const [selected, setSelected] = useState(() => { const idx = values.indexOf(initial); return idx >= 0 ? idx : 0; });
+  const [manual, setManual] = useState(false);
+  const [manualVal, setManualVal] = useState(String(initial));
   const listRef = useRef<HTMLDivElement>(null);
-  const initIdx = values.indexOf(initial);
+  const isScrolling = useRef(false);
+  const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (listRef.current) {
-      listRef.current.scrollTop = Math.max(0, initIdx) * ITEM_H;
+    if (listRef.current && !isScrolling.current) {
+      listRef.current.scrollTop = selected * ITEM_H;
     }
-  }, []);
+  }, [selected, ITEM_H]);
 
   function onScroll() {
     if (!listRef.current) return;
-    const idx = Math.round(listRef.current.scrollTop / ITEM_H);
-    const v = values[Math.min(Math.max(idx, 0), values.length - 1)];
-    if (v !== undefined) setSelected(v);
+    isScrolling.current = true;
+    const idx = Math.max(0, Math.min(values.length - 1, Math.round(listRef.current.scrollTop / ITEM_H)));
+    setSelected(idx);
+    if (snapTimer.current) clearTimeout(snapTimer.current);
+    snapTimer.current = setTimeout(() => {
+      if (listRef.current) listRef.current.scrollTop = idx * ITEM_H;
+      isScrolling.current = false;
+    }, 80);
   }
 
+  function onWheel(e: React.WheelEvent) { e.stopPropagation(); }
+  function onTouchMove(e: React.TouchEvent) { e.stopPropagation(); }
+  function pick(idx: number) { onConfirm(values[idx]); onClose(); }
+  function submitManual() { const v = parseFloat(manualVal); if (!isNaN(v)) { onConfirm(v); onClose(); } }
+
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 999, background: "rgba(0,0,0,.7)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end" }}>
-      <div style={{ width: "100%", maxWidth: 420, background: "var(--panel)", borderRadius: "18px 18px 0 0", padding: "0 0 24px" }}>
-        <div style={{ padding: "16px 20px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--dim)" }}>{label}</span>
-          <button onClick={onCancel} style={{ background: "none", border: "none", color: "var(--dim)", fontSize: 20, cursor: "pointer" }}>✕</button>
-        </div>
-        <div style={{ position: "relative", height: ITEM_H * 5, overflow: "hidden", margin: "12px 0" }}>
-          <div
-            ref={listRef}
-            onScroll={onScroll}
-            style={{ height: "100%", overflowY: "scroll", scrollSnapType: "y mandatory", paddingTop: PAD, paddingBottom: PAD, overscrollBehavior: "contain" }}
-          >
-            {values.map((v) => (
-              <div key={v} onClick={() => setSelected(v)} style={{ height: ITEM_H, display: "flex", alignItems: "center", justifyContent: "center", scrollSnapAlign: "center", fontSize: v === selected ? 26 : 18, fontWeight: v === selected ? 900 : 400, color: v === selected ? "var(--text)" : "var(--dim)", fontFamily: "monospace", cursor: "pointer", transition: "all .15s" }}>
-                {v % 1 === 0 ? v : v.toFixed(1)}
-              </div>
-            ))}
+    <div
+      onClick={onClose}
+      onWheel={(e) => e.stopPropagation()}
+      style={{ position: "fixed", inset: 0, zIndex: 1001, background: "rgba(0,0,0,.65)" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed", bottom: 0, left: 0, right: 0,
+          paddingBottom: "env(safe-area-inset-bottom, 20px)",
+          background: "var(--panel)", borderRadius: "18px 18px 0 0",
+          zIndex: 1002,
+        }}
+      >
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--dim)", padding: "18px 20px 12px", textAlign: "center" }}>{label}</div>
+
+        {!manual ? (
+          <div style={{ position: "relative", height: ITEM_H * VISIBLE, overflow: "hidden", margin: "0 20px" }}>
+            <div style={{ position: "absolute", top: PAD, left: 0, right: 0, height: ITEM_H, background: "rgba(255,255,255,.07)", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)", pointerEvents: "none", borderRadius: 8, zIndex: 1 }} />
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: PAD, background: "linear-gradient(to bottom, var(--panel), transparent)", pointerEvents: "none", zIndex: 2 }} />
+            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: PAD, background: "linear-gradient(to top, var(--panel), transparent)", pointerEvents: "none", zIndex: 2 }} />
+            <div
+              ref={listRef}
+              onScroll={onScroll}
+              onWheel={onWheel}
+              onTouchMove={onTouchMove}
+              style={{
+                height: "100%",
+                overflowY: "scroll",
+                scrollbarWidth: "none",
+                overscrollBehavior: "contain",
+                paddingTop: PAD,
+                paddingBottom: PAD,
+              }}
+            >
+              {values.map((v, i) => {
+                const dist = Math.abs(i - selected);
+                const scale = dist === 0 ? 1 : dist === 1 ? 0.82 : 0.68;
+                const opacity = dist === 0 ? 1 : dist === 1 ? 0.55 : 0.3;
+                return (
+                  <div
+                    key={i}
+                    onClick={() => pick(i)}
+                    style={{
+                      height: ITEM_H,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 28,
+                      fontWeight: dist === 0 ? 800 : 500,
+                      color: dist === 0 ? "var(--text)" : "var(--dim)",
+                      fontFamily: "monospace",
+                      transform: `scale(${scale})`,
+                      opacity,
+                      transition: "transform .12s, opacity .12s",
+                      cursor: "pointer",
+                      userSelect: "none",
+                    }}
+                  >
+                    {v % 1 === 0 ? v : v.toFixed(1)}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: PAD, background: "linear-gradient(to bottom, var(--panel), transparent)", pointerEvents: "none" }} />
-          <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: PAD, background: "linear-gradient(to top, var(--panel), transparent)", pointerEvents: "none" }} />
-          <div style={{ position: "absolute", top: "50%", left: 16, right: 16, transform: "translateY(-50%)", height: ITEM_H, borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)", pointerEvents: "none" }} />
-        </div>
-        <div style={{ padding: "0 16px", display: "flex", gap: 10 }}>
-          <button onClick={onCancel} style={{ flex: 1, height: 48, borderRadius: 12, border: "1px solid var(--line)", background: "none", color: "var(--dim)", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Cancel</button>
-          <button onClick={() => onConfirm(selected)} style={{ flex: 2, height: 48, borderRadius: 12, border: "none", background: "var(--good)", color: "#0c1a10", fontSize: 15, fontWeight: 900, cursor: "pointer" }}>Confirm</button>
+        ) : (
+          <div style={{ padding: "16px 20px", display: "flex", gap: 8 }}>
+            <input type="number" value={manualVal} onChange={(e) => setManualVal(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitManual()} autoFocus
+              style={{ flex: 1, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: "var(--text)", fontSize: 24, fontWeight: 700, padding: "12px 16px", textAlign: "center", fontFamily: "monospace" }} />
+            <button onClick={submitManual} style={{ padding: "12px 20px", borderRadius: 10, border: "none", background: "var(--good)", color: "#0c1a10", fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>✓</button>
+          </div>
+        )}
+
+        <div style={{ padding: "12px 20px 8px" }}>
+          <button onClick={() => setManual((v) => !v)} style={{ display: "block", background: "var(--bg)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "9px 24px", borderRadius: 10, width: "100%" }}>
+            {manual ? "← Back to scroll" : "Type a number"}
+          </button>
         </div>
       </div>
     </div>
@@ -161,7 +216,6 @@ function ExerciseCard({
   const unit: Units = (isAdHoc ? ex.loadUnit : ex.loadUnit) ?? defaultUnit;
   const name = ex.exercise.name;
 
-  // Pre-populate from already-logged sets (for non-adHoc exercises)
   const existingLogs = isAdHoc ? [] : ex.loggedSets;
 
   const [sets, setSets] = useState<SetState[]>(() =>
@@ -203,7 +257,7 @@ function ExerciseCard({
 
   async function doUnlog(idx: number) {
     setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: false } : ss));
-    if (!sessionExerciseId) return; // ad-hoc extra sets: no upsert key to delete by, just unmark locally
+    if (!sessionExerciseId) return;
     try {
       await fetch("/api/coach/live/log-set", {
         method: "DELETE",
@@ -217,7 +271,6 @@ function ExerciseCard({
 
   function handlePickerConfirm(v: number) {
     const { field, setIdx } = picker!;
-    setPicker(null);
     setSets((prev) => {
       const next = prev.map((ss, i) => i === setIdx ? { ...ss, [field]: v } : ss);
       if (field === "reps") doLog(setIdx, next);
@@ -233,7 +286,6 @@ function ExerciseCard({
 
   return (
     <div style={{ background: "var(--panel)", borderRadius: 14, padding: "14px 14px 10px", marginBottom: 12, border: "1px solid var(--line)" }}>
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)" }}>{name}</div>
@@ -248,7 +300,6 @@ function ExerciseCard({
         </span>
       </div>
 
-      {/* Set rows */}
       {sets.map((s, i) => (
         <SetRow
           key={i}
@@ -267,7 +318,6 @@ function ExerciseCard({
         />
       ))}
 
-      {/* + Set */}
       <button
         onClick={addSet}
         style={{ marginTop: 4, width: "100%", height: 34, borderRadius: 9, border: "1px dashed var(--line)", background: "none", color: "var(--dim)", fontSize: 13, fontWeight: 700, cursor: "pointer", letterSpacing: ".03em" }}
@@ -275,14 +325,13 @@ function ExerciseCard({
         + Set
       </button>
 
-      {/* DrumPicker */}
       {picker && (
         <DrumPicker
           label={picker.field === "weight" ? `Weight (${unit.toLowerCase()})` : "Reps"}
-          values={picker.field === "weight" ? makeWeightValues(sets[picker.setIdx].weight ?? prescribedWeight ?? 0) : makeRepValues(sets[picker.setIdx].reps ?? prescribedReps ?? 1)}
-          initial={picker.field === "weight" ? (sets[picker.setIdx].weight ?? prescribedWeight ?? 0) : (sets[picker.setIdx].reps ?? prescribedReps ?? 1)}
+          values={picker.field === "weight" ? makeWeightValues(sets[picker.setIdx].weight || prescribedWeight || 0) : makeRepValues(sets[picker.setIdx].reps || prescribedReps || 1)}
+          initial={picker.field === "weight" ? (sets[picker.setIdx].weight || prescribedWeight || 0) : (sets[picker.setIdx].reps || prescribedReps || 1)}
           onConfirm={handlePickerConfirm}
-          onCancel={() => setPicker(null)}
+          onClose={() => setPicker(null)}
         />
       )}
     </div>
@@ -393,54 +442,60 @@ export default function CoachLiveSession({
   const totalExercises = session.sessionExercises.length + adHocExercises.length;
 
   return (
-    <div style={{ minHeight: "100dvh", background: "var(--bg)", color: "var(--text)", fontFamily: "inherit" }}>
-      {/* Header */}
-      <div style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--bg)", borderBottom: "1px solid var(--line)", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <div style={{ fontSize: 11, color: "var(--dim)", fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase" }}>{clientName}</div>
-          <div style={{ fontSize: 16, fontWeight: 800 }}>{sessionLabel}</div>
+    <>
+      <style>{`
+        :root{--bg:#14161a;--panel:#1c1f24;--line:#2a2e35;--text:#edeae4;--dim:#8a8f98;--accent:#ff4b3e;--accent-dim:#5c1f19;--steel:#5c7a8a;--good:#54c17a;--blue:#2e8fff;}
+        body{background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+        *{box-sizing:border-box;}
+        input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
+        input[type=number]{-moz-appearance:textfield;}
+      `}</style>
+
+      <div style={{ minHeight: "100dvh", background: "var(--bg)", color: "var(--text)", fontFamily: "inherit" }}>
+        <div style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--bg)", borderBottom: "1px solid var(--line)", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "var(--dim)", fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase" }}>{clientName}</div>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>{sessionLabel}</div>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--dim)", fontWeight: 600 }}>{totalExercises} exercise{totalExercises !== 1 ? "s" : ""}</div>
         </div>
-        <div style={{ fontSize: 12, color: "var(--dim)", fontWeight: 600 }}>{totalExercises} exercise{totalExercises !== 1 ? "s" : ""}</div>
-      </div>
 
-      {/* Exercise cards */}
-      <div style={{ padding: "16px 16px 120px" }}>
-        {session.sessionExercises.map((ex) => (
-          <ExerciseCard
-            key={ex.id}
-            ex={ex}
-            sessionId={session.id}
-            clientId={clientId}
-            defaultUnit={defaultUnit}
+        <div style={{ padding: "16px 16px 120px", maxWidth: 480, margin: "0 auto" }}>
+          {session.sessionExercises.map((ex) => (
+            <ExerciseCard
+              key={ex.id}
+              ex={ex}
+              sessionId={session.id}
+              clientId={clientId}
+              defaultUnit={defaultUnit}
+            />
+          ))}
+          {adHocExercises.map((ex) => (
+            <ExerciseCard
+              key={ex.id}
+              ex={ex}
+              sessionId={session.id}
+              clientId={clientId}
+              defaultUnit={defaultUnit}
+            />
+          ))}
+
+          <button
+            onClick={() => setShowAddExercise(true)}
+            style={{ width: "100%", height: 52, borderRadius: 14, border: "1.5px dashed var(--line)", background: "none", color: "var(--dim)", fontSize: 15, fontWeight: 700, cursor: "pointer", letterSpacing: ".03em", marginTop: 4 }}
+          >
+            + Exercise
+          </button>
+        </div>
+
+        {showAddExercise && (
+          <AddExerciseOverlay
+            allExercises={allExercises}
+            onAdd={handleAddExercise}
+            onClose={() => setShowAddExercise(false)}
           />
-        ))}
-        {adHocExercises.map((ex) => (
-          <ExerciseCard
-            key={ex.id}
-            ex={ex}
-            sessionId={session.id}
-            clientId={clientId}
-            defaultUnit={defaultUnit}
-          />
-        ))}
-
-        {/* + Exercise button */}
-        <button
-          onClick={() => setShowAddExercise(true)}
-          style={{ width: "100%", height: 52, borderRadius: 14, border: "1.5px dashed var(--line)", background: "none", color: "var(--dim)", fontSize: 15, fontWeight: 700, cursor: "pointer", letterSpacing: ".03em", marginTop: 4 }}
-        >
-          + Exercise
-        </button>
+        )}
       </div>
-
-      {/* Add exercise overlay */}
-      {showAddExercise && (
-        <AddExerciseOverlay
-          allExercises={allExercises}
-          onAdd={handleAddExercise}
-          onClose={() => setShowAddExercise(false)}
-        />
-      )}
-    </div>
+    </>
   );
 }
