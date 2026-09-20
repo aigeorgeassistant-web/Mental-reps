@@ -688,19 +688,33 @@ function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, loggedD
                     e.dataTransfer.setData("text/plain", JSON.stringify({ sessionId: daySessions[0].id, sourceClientId: currentClientId }));
                   }}
                   className="mt-auto">
-                  <button onClick={() => onChipClick(daySessions[0].id)}
-                    className={`w-full truncate rounded px-1 py-0.5 text-left text-[10px] transition-colors ${
-                      deleteMode
-                        ? selectedIds.includes(daySessions[0].id)
-                          ? "bg-red-500 text-white"
-                          : "bg-red-100 text-red-700 border border-red-300"
-                        : hasLogs
-                        ? "bg-green-600 text-white cursor-grab active:cursor-grabbing"
-                        : "bg-neutral-800 text-white cursor-grab active:cursor-grabbing"
-                    }`}
-                    title={daySessions[0].dayLabel}>
-                    {deleteMode && selectedIds.includes(daySessions[0].id) ? "✓ " : ""}{daySessions[0].dayLabel}
-                  </button>
+                  <div className="flex items-center gap-0.5">
+                    <button onClick={() => onChipClick(daySessions[0].id)}
+                      className={`flex-1 min-w-0 truncate rounded px-1 py-0.5 text-left text-[10px] transition-colors ${
+                        deleteMode
+                          ? selectedIds.includes(daySessions[0].id)
+                            ? "bg-red-500 text-white"
+                            : "bg-red-100 text-red-700 border border-red-300"
+                          : hasLogs
+                          ? "bg-green-600 text-white cursor-grab active:cursor-grabbing"
+                          : "bg-neutral-800 text-white cursor-grab active:cursor-grabbing"
+                      }`}
+                      title={daySessions[0].dayLabel}>
+                      {deleteMode && selectedIds.includes(daySessions[0].id) ? "✓ " : ""}{daySessions[0].dayLabel}
+                    </button>
+                    {!deleteMode && (
+                      <a
+                        href={`/coach/clients/${currentClientId}/live/${daySessions[0].id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open live logging"
+                        className="shrink-0 flex items-center justify-center w-4 h-4 rounded text-[9px] bg-neutral-100 hover:bg-neutral-200 text-neutral-500 hover:text-neutral-800 transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        ▶
+                      </a>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <button onClick={() => onDayClick(key)} disabled={disabled || deleteMode}
