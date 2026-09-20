@@ -1,13 +1,19 @@
 "use client";
 // components/coach/CoachLiveSession.tsx
 // Coach live-logging view — styled like TodayWorkout but with:
-//   • + Set per exercise (extra set beyond prescribed)
-//   • + Exercise (search → add ad-hoc exercise, logs directly, no SessionExercise written)
-// All logging goes to /api/coach/live/log-set (coach-role route).
+//   • + Set per exercise (extra set beyond prescribed, log-only)
+//   • + Exercise (search → creates a real SessionExercise on this session,
+//     appended at the end, same as the builder's add-exercise flow)
+//   • Reorder — move whole exercises (or whole supersets) up/down among
+//     each other; can't drop into the middle of a superset. Persists via
+//     the same reorderSessionExercises action the builder uses.
+// Logging goes to /api/coach/live/log-set (coach-role route).
 // DrumPicker and value generators are copied verbatim from TodayWorkout.tsx for parity.
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import type { Exercise, SessionExercise } from "@prisma/client";
+import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
+import { reorderSessionExercises } from "@/lib/actions/reorder-actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,21 +24,51 @@ type LiveExercise = SessionExercise & {
   loggedSets: { setIndex: number; weight: number | null; reps: number | null }[];
 };
 
-// An ad-hoc exercise added by the coach on the fly (no SessionExercise row)
-type AdHocExercise = {
-  adHoc: true;
-  id: string; // client-side uuid only
-  exerciseId: string;
-  exercise: Exercise;
-  sets: number;
-  reps: number | null;
-  loadValue: number | null;
-  loadUnit: Units | null;
-};
-
-type AnyExercise = LiveExercise | AdHocExercise;
-
 type SetState = { weight: number; reps: number; done: boolean; isPr?: boolean };
+
+// A block is either a single exercise or a run of consecutive exercises
+// sharing the same non-null groupId (a superset). Blocks are the unit of
+// reordering — you can move a whole block, never split one apart.
+type Block =
+  | { kind: "single"; ex: LiveExercise; index: number }
+  | { kind: "group"; exs: LiveExercise[]; indices: number[]; color: string | null };
+
+function buildBlocks(list: LiveExercise[]): Block[] {
+  const blocks: Block[] = [];
+  let i = 0;
+  while (i < list.length) {
+    const ex = list[i];
+    if (!ex.groupId) {
+      blocks.push({ kind: "single", ex, index: i });
+      i++;
+      continue;
+    }
+    let j = i;
+    const groupExs: LiveExercise[] = [];
+    const indices: number[] = [];
+    while (j < list.length && list[j].groupId === ex.groupId) {
+      groupExs.push(list[j]);
+      indices.push(j);
+      j++;
+    }
+    blocks.push({ kind: "group", exs: groupExs, indices, color: groupExs[0].groupColor });
+    i = j;
+  }
+  return blocks;
+}
+
+function blockKeyOf(b: Block): string {
+  return b.kind === "single" ? b.ex.id : b.exs[0].id;
+}
+
+function flattenBlocks(blocks: Block[]): LiveExercise[] {
+  const out: LiveExercise[] = [];
+  for (const b of blocks) {
+    if (b.kind === "single") out.push(b.ex);
+    else out.push(...b.exs);
+  }
+  return out;
+}
 
 // ─── Value generators (verbatim from TodayWorkout.tsx) ────────────────────────
 
@@ -202,21 +238,20 @@ function SetRow({
 function ExerciseCard({
   ex, sessionId, clientId, defaultUnit,
 }: {
-  ex: AnyExercise;
+  ex: LiveExercise;
   sessionId: string;
   clientId: string;
   defaultUnit: Units;
 }) {
-  const isAdHoc = "adHoc" in ex;
-  const sessionExerciseId = isAdHoc ? undefined : ex.id;
+  const sessionExerciseId = ex.id;
   const exerciseId = ex.exerciseId;
-  const prescribedSets = isAdHoc ? ex.sets : (ex.sets ?? 1);
-  const prescribedReps = isAdHoc ? ex.reps : (ex.reps ?? null);
-  const prescribedWeight = isAdHoc ? ex.loadValue : (ex.loadValue ?? null);
-  const unit: Units = (isAdHoc ? ex.loadUnit : ex.loadUnit) ?? defaultUnit;
+  const prescribedSets = ex.sets ?? 1;
+  const prescribedReps = ex.reps ?? null;
+  const prescribedWeight = ex.loadValue ?? null;
+  const unit: Units = (ex.loadUnit as Units) ?? defaultUnit;
   const name = ex.exercise.name;
 
-  const existingLogs = isAdHoc ? [] : ex.loggedSets;
+  const existingLogs = ex.loggedSets;
 
   const [sets, setSets] = useState<SetState[]>(() =>
     Array.from({ length: prescribedSets }, (_, i) => {
@@ -242,7 +277,7 @@ function ExerciseCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientId,
-          sessionExerciseId: sessionExerciseId ?? undefined,
+          sessionExerciseId,
           sessionId,
           exerciseId,
           setIndex: idx,
@@ -257,7 +292,6 @@ function ExerciseCard({
 
   async function doUnlog(idx: number) {
     setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: false } : ss));
-    if (!sessionExerciseId) return;
     try {
       await fetch("/api/coach/live/log-set", {
         method: "DELETE",
@@ -285,7 +319,7 @@ function ExerciseCard({
   const doneSets = sets.filter((s) => s.done).length;
 
   return (
-    <div style={{ background: "var(--panel)", borderRadius: 14, padding: "14px 14px 10px", marginBottom: 12, border: "1px solid var(--line)" }}>
+    <div style={{ background: "var(--panel)", borderRadius: 14, padding: "14px 14px 10px", border: "1px solid var(--line)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)" }}>{name}</div>
@@ -398,6 +432,57 @@ function AddExerciseOverlay({
   );
 }
 
+// ─── Block wrapper (single card or grouped superset, with reorder arrows) ─────
+
+function BlockWrapper({
+  block, sessionId, clientId, defaultUnit,
+  canMoveUp, canMoveDown, onMoveUp, onMoveDown,
+}: {
+  block: Block;
+  sessionId: string;
+  clientId: string;
+  defaultUnit: Units;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const exs = block.kind === "single" ? [block.ex] : block.exs;
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      {block.kind === "group" && (
+        <div style={{ margin: "0 0 4px 2px", padding: "2px 8px", borderRadius: 4, background: block.color ?? "#5c7a8a", fontSize: 9, fontWeight: 700, color: "#fff", display: "inline-block", letterSpacing: ".04em", textTransform: "uppercase" }}>
+          Superset
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: block.kind === "group" ? 6 : 0 }}>
+          {exs.map((ex) => (
+            <ExerciseCard key={ex.id} ex={ex} sessionId={sessionId} clientId={clientId} defaultUnit={defaultUnit} />
+          ))}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0, justifyContent: "center" }}>
+          <button
+            onClick={onMoveUp}
+            disabled={!canMoveUp}
+            style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid var(--line)", background: "var(--panel)", color: canMoveUp ? "var(--text)" : "var(--line)", fontSize: 13, cursor: canMoveUp ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            ↑
+          </button>
+          <button
+            onClick={onMoveDown}
+            disabled={!canMoveDown}
+            style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid var(--line)", background: "var(--panel)", color: canMoveDown ? "var(--text)" : "var(--line)", fontSize: 13, cursor: canMoveDown ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            ↓
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 type SessionData = {
@@ -420,26 +505,38 @@ export default function CoachLiveSession({
   allExercises: Exercise[];
   defaultUnit?: Units;
 }) {
-  const [adHocExercises, setAdHocExercises] = useState<AdHocExercise[]>([]);
+  const [exercises, setExercises] = useState<LiveExercise[]>(
+    [...session.sessionExercises].sort((a, b) => a.order - b.order)
+  );
   const [showAddExercise, setShowAddExercise] = useState(false);
 
-  function handleAddExercise(ex: Exercise) {
+  async function handleAddExercise(ex: Exercise) {
     setShowAddExercise(false);
-    const newAdHoc: AdHocExercise = {
-      adHoc: true,
-      id: `adhoc-${Date.now()}-${ex.id}`,
-      exerciseId: ex.id,
+    const created = await addExerciseToSession(session.id, ex.id);
+    if (!created) return;
+    const newRow: LiveExercise = {
+      ...(created as any),
       exercise: ex,
-      sets: 1,
-      reps: null,
-      loadValue: null,
-      loadUnit: defaultUnit,
+      loggedSets: [],
     };
-    setAdHocExercises((prev) => [...prev, newAdHoc]);
+    setExercises((prev) => [...prev, newRow]);
+  }
+
+  const blocks = useMemo(() => buildBlocks(exercises), [exercises]);
+
+  function moveBlock(blockIdx: number, direction: -1 | 1) {
+    const targetIdx = blockIdx + direction;
+    if (targetIdx < 0 || targetIdx >= blocks.length) return;
+    const newBlocks = [...blocks];
+    const [moved] = newBlocks.splice(blockIdx, 1);
+    newBlocks.splice(targetIdx, 0, moved);
+    const newList = flattenBlocks(newBlocks);
+    setExercises(newList);
+    reorderSessionExercises(newList.map((e) => e.id));
   }
 
   const sessionLabel = session.dayLabel ?? (session.date ? new Date(session.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "Session");
-  const totalExercises = session.sessionExercises.length + adHocExercises.length;
+  const totalExercises = exercises.length;
 
   return (
     <>
@@ -461,22 +558,17 @@ export default function CoachLiveSession({
         </div>
 
         <div style={{ padding: "16px 16px 120px", maxWidth: 480, margin: "0 auto" }}>
-          {session.sessionExercises.map((ex) => (
-            <ExerciseCard
-              key={ex.id}
-              ex={ex}
+          {blocks.map((block, i) => (
+            <BlockWrapper
+              key={blockKeyOf(block)}
+              block={block}
               sessionId={session.id}
               clientId={clientId}
               defaultUnit={defaultUnit}
-            />
-          ))}
-          {adHocExercises.map((ex) => (
-            <ExerciseCard
-              key={ex.id}
-              ex={ex}
-              sessionId={session.id}
-              clientId={clientId}
-              defaultUnit={defaultUnit}
+              canMoveUp={i > 0}
+              canMoveDown={i < blocks.length - 1}
+              onMoveUp={() => moveBlock(i, -1)}
+              onMoveDown={() => moveBlock(i, 1)}
             />
           ))}
 
