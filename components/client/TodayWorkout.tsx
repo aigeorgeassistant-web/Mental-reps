@@ -459,11 +459,11 @@ function CalendarPopup({ sessionId, onClose, initialSessions, onSessionsMoved }:
 
 // ─── Set row ──────────────────────────────────────────────────────────────────
 
-function SetRow({ s, i, unit, onPicker, onUncheck, onRelog }: {
+function SetRow({ s, i, unit, onPicker, onUncheck, onCheck }: {
   s: SetState; i: number; unit: Units;
   onPicker: (field: "weight" | "reps") => void;
   onUncheck: () => void;
-  onRelog: () => void;
+  onCheck: () => void;
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -475,7 +475,7 @@ function SetRow({ s, i, unit, onPicker, onUncheck, onRelog }: {
       <button onClick={() => onPicker("reps")} style={{ width: 60, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.reps ? "var(--text)" : "var(--dim)", fontSize: 16, fontWeight: 800, padding: "5px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
         {s.reps || "reps"}
       </button>
-      <button onClick={() => s.done ? onUncheck() : (s.weight && s.reps ? onRelog() : undefined)} style={{ width: 32, height: 32, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 18, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: (s.done || (s.weight && s.reps)) ? "pointer" : "default" }}>✓</button>
+      <button onClick={() => s.done ? onUncheck() : onCheck()} style={{ width: 32, height: 32, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 18, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>✓</button>
     </div>
   );
 }
@@ -545,6 +545,8 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   async function doLog(idx: number, newSets: SetState[]) {
     const s = newSets[idx];
     const weight = s.weight || (row.loadValue ?? null);
+    // Reps: use what's in state, fall back to prescribed reps, or null (excluded from analytics)
+    const reps = s.reps || (row.reps ?? null);
     // Mark done instantly — server logs in background
     setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, done: true } : ss));
     onSetDone?.();
@@ -558,14 +560,14 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
           exerciseId: row.exerciseId,
           setIndex: idx,
           weight,
-          reps: s.reps,
+          reps,
         }),
       });
       const data = await res.json();
       if (data.isPr) {
         setNewPr(true);
         const s = newSets[idx];
-        if (s.weight && s.reps) setPrBestSet({ weight: s.weight, reps: s.reps, date: new Date().toISOString().slice(0, 10) });
+        if (s.weight && reps) setPrBestSet({ weight: s.weight, reps, date: new Date().toISOString().slice(0, 10) });
         setSets((prev) => prev.map((ss, i) => i === idx ? { ...ss, isPr: true } : ss));
       }
     } catch {
@@ -702,7 +704,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
                 key={i} s={s} i={i} unit={unit}
                 onPicker={(field) => setPicker({ setIdx: i, field })}
                 onUncheck={() => doUnlog(i)}
-                onRelog={() => doLog(i, sets)}
+                onCheck={() => doLog(i, sets)}
               />
             ))}
             <div style={{ marginTop: 8, position: "relative" }}>
@@ -1361,6 +1363,7 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
     </div>
   );
 }
+
 
 
 
