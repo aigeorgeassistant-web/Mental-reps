@@ -158,6 +158,7 @@ export function SessionEditor({
   isTemplateSession,
   onOpenAddExercise,
   onAddExerciseRef,
+  clientId,
 }: {
   session: SessionWithExercises;
   exercises: Exercise[];
@@ -166,6 +167,7 @@ export function SessionEditor({
   isTemplateSession?: boolean;
   onOpenAddExercise?: (prefillName: string, onCreated: (ex: Exercise) => void) => void;
   onAddExerciseRef?: React.MutableRefObject<((exerciseId: string) => void) | null>;
+  clientId?: string;
 }) {
   // Row/group/detail edits inside an already-open session don't need a
   // full page refresh — onAfterMutation() re-fetches just this session's
@@ -1108,6 +1110,17 @@ export function SessionEditor({
           onClose={() => setPasteOpen(false)}
           onImported={afterMutation}
         />
+      )}
+
+      {!isTemplateSession && clientId && (
+        <div className="mt-4 border-t pt-4">
+          <a
+            href={`/coach/clients/${clientId}/live/${session.id}`}
+            className="block w-full text-center rounded-md bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+          >
+            Open Workout →
+          </a>
+        </div>
       )}
     </div>
   );
