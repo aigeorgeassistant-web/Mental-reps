@@ -199,6 +199,7 @@ export function ProgramBuilder({
           onAfterMutation={handleAfterMutation}
           onOpenAddExercise={handleOpenAddExercise}
           onAddExerciseRef={sessionEditorAddRef}
+          clientId={client.id}
         />
       ) : (
         <div className="w-1/2 border-r p-4">
