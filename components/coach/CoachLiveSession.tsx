@@ -10,7 +10,7 @@ import type { Exercise, SessionExercise } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Units = "KG" | "LBS";
+type Units = "KG" | "LB";
 
 type LiveExercise = SessionExercise & {
   exercise: Exercise;
