@@ -92,12 +92,25 @@ function makeRepValues(center: number): number[] {
   return vals;
 }
 
+// ─── Exercise media (GIF or WEBM) ─────────────────────────────────────────────
+
+function isVideoUrl(url: string) {
+  return /\.(webm|mp4)(\?|#|$)/i.test(url);
+}
+
+function ExerciseMedia({ url, name, style }: { url: string; name: string; style?: React.CSSProperties }) {
+  if (isVideoUrl(url)) {
+    return <video src={url} autoPlay loop muted playsInline style={style} />;
+  }
+  return <img src={url} alt={name} style={style} />;
+}
+
 // ─── GIF overlay ──────────────────────────────────────────────────────────────
 
 function GifOverlay({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <img src={url} alt={name} style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain" }} />
+      <ExerciseMedia url={url} name={name} style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain" }} />
       <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,.15)", border: "none", color: "#fff", fontSize: 22, width: 40, height: 40, borderRadius: 20, cursor: "pointer" }}>✕</button>
     </div>
   );
@@ -274,9 +287,9 @@ function IntervalTimer({ config, onClose }: { config: TimerConfig; onClose: () =
     <div style={{background:"var(--bg)",position:"fixed",inset:0,zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",padding:24}}>
       <div style={{background:phaseBg,color:done?"#fff":phase==="work"?"#0c1a10":"#fff",fontSize:12,fontWeight:800,letterSpacing:".14em",textTransform:"uppercase",padding:"6px 20px",borderRadius:20,marginBottom:14}}>{done?"Done!":phase==="work"?"Work":"Rest"}</div>
       {!done&&<div style={{fontSize:13,fontWeight:700,color:"var(--dim)",marginBottom:8,maxWidth:280}}>{ex.name}{config.mode==="circuit"&&<span style={{display:"block",fontSize:11,marginTop:4}}>Round {round}/{totalR}</span>}</div>}
-      {ex.gifUrl&&!done&&(<><button onClick={()=>setShowGif(v=>!v)} style={{background:"none",border:"1px solid var(--line)",color:"var(--dim)",fontSize:12,fontWeight:700,padding:"5px 14px",borderRadius:20,cursor:"pointer",marginBottom:10,fontFamily:"inherit"}}>{showGif?"Hide GIF":"Show GIF"}</button>{showGif&&<div style={{width:"100%",maxWidth:200,borderRadius:10,overflow:"hidden",border:"1px solid var(--line)",marginBottom:10}}><img src={ex.gifUrl} alt={ex.name} style={{width:"100%",display:"block"}}/></div>}</>)}
+      {ex.gifUrl&&!done&&(<><button onClick={()=>setShowGif(v=>!v)} style={{background:"none",border:"1px solid var(--line)",color:"var(--dim)",fontSize:12,fontWeight:700,padding:"5px 14px",borderRadius:20,cursor:"pointer",marginBottom:10,fontFamily:"inherit"}}>{showGif?"Hide GIF":"Show GIF"}</button>{showGif&&<div style={{width:"100%",maxWidth:200,borderRadius:10,overflow:"hidden",border:"1px solid var(--line)",marginBottom:10}}><ExerciseMedia url={ex.gifUrl} name={ex.name} style={{width:"100%",display:"block"}}/></div>}</>)}
       <div style={{fontSize:108,fontWeight:900,fontFamily:"monospace",lineHeight:1,color:urgent?"var(--accent)":"var(--text)",marginBottom:8,transition:"color .15s"}}>{done?"✓":fmtTime(timeLeft)}</div>
-      {nextEx&&!done&&<div style={{marginBottom:16}}><div style={{fontSize:11,color:"var(--dim)",textTransform:"uppercase",letterSpacing:".1em",fontWeight:700,marginBottom:4}}>Next up</div><div style={{fontSize:13,fontWeight:700,color:"var(--text)",marginBottom:6}}>{nextEx.name}</div>{nextEx.gifUrl&&<div style={{width:140,margin:"0 auto",borderRadius:8,overflow:"hidden",border:"1px solid var(--line)"}}><img src={nextEx.gifUrl} alt={nextEx.name} style={{width:"100%",display:"block"}}/></div>}</div>}
+      {nextEx&&!done&&<div style={{marginBottom:16}}><div style={{fontSize:11,color:"var(--dim)",textTransform:"uppercase",letterSpacing:".1em",fontWeight:700,marginBottom:4}}>Next up</div><div style={{fontSize:13,fontWeight:700,color:"var(--text)",marginBottom:6}}>{nextEx.name}</div>{nextEx.gifUrl&&<div style={{width:140,margin:"0 auto",borderRadius:8,overflow:"hidden",border:"1px solid var(--line)"}}><ExerciseMedia url={nextEx.gifUrl} name={nextEx.name} style={{width:"100%",display:"block"}}/></div>}</div>}
       <div style={{display:"flex",gap:12}}>
         {!done&&<button onClick={()=>setRunning(v=>!v)} style={{padding:"14px 32px",borderRadius:10,border:"none",fontSize:15,fontWeight:700,cursor:"pointer",background:"var(--accent)",color:"#fff",fontFamily:"inherit"}}>{running?"Pause":"Start"}</button>}
         <button onClick={onClose} style={{padding:"14px 32px",borderRadius:10,border:"none",fontSize:15,fontWeight:700,cursor:"pointer",background:"var(--line)",color:"var(--text)",fontFamily:"inherit"}}>{done?"Close":"Exit"}</button>
@@ -294,7 +307,7 @@ function EmomTimer({ config, onClose }: { config: EmomConfig; onClose: () => voi
     <div style={{background:"var(--bg)",position:"fixed",inset:0,zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",padding:24}}>
       <div style={{background:"#2e8fff",color:"#fff",fontSize:12,fontWeight:800,letterSpacing:".14em",textTransform:"uppercase",padding:"6px 20px",borderRadius:20,marginBottom:14}}>EMOM</div>
       <div style={{fontSize:13,fontWeight:700,color:"var(--dim)",marginBottom:8}}>{ex.name}{ex.reps!=null&&<span style={{display:"block",fontSize:11,marginTop:2}}>×{ex.reps} reps</span>}</div>
-      {ex.gifUrl&&(<><button onClick={()=>setShowGif(v=>!v)} style={{background:"none",border:"1px solid var(--line)",color:"var(--dim)",fontSize:12,fontWeight:700,padding:"5px 14px",borderRadius:20,cursor:"pointer",marginBottom:10,fontFamily:"inherit"}}>{showGif?"Hide GIF":"Show GIF"}</button>{showGif&&<div style={{width:"100%",maxWidth:200,borderRadius:10,overflow:"hidden",border:"1px solid var(--line)",marginBottom:10}}><img src={ex.gifUrl} alt={ex.name} style={{width:"100%",display:"block"}}/></div>}</>)}
+      {ex.gifUrl&&(<><button onClick={()=>setShowGif(v=>!v)} style={{background:"none",border:"1px solid var(--line)",color:"var(--dim)",fontSize:12,fontWeight:700,padding:"5px 14px",borderRadius:20,cursor:"pointer",marginBottom:10,fontFamily:"inherit"}}>{showGif?"Hide GIF":"Show GIF"}</button>{showGif&&<div style={{width:"100%",maxWidth:200,borderRadius:10,overflow:"hidden",border:"1px solid var(--line)",marginBottom:10}}><ExerciseMedia url={ex.gifUrl} name={ex.name} style={{width:"100%",display:"block"}}/></div>}</>)}
       <div style={{fontSize:108,fontWeight:900,fontFamily:"monospace",lineHeight:1,color:urgent?"var(--accent)":"var(--text)",marginBottom:8}}>{fmtTime(timeLeft)}</div>
       <div style={{marginBottom:16}}><div style={{fontSize:11,color:"var(--dim)",textTransform:"uppercase",letterSpacing:".1em",fontWeight:700,marginBottom:4}}>Next</div><div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>{nextEx.name}</div></div>
       <div style={{display:"flex",gap:12}}>
@@ -669,7 +682,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
         <div onClick={() => setOpen((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer", userSelect: "none" }}>
           <div onClick={(e) => { if (row.exercise.gifUrl) { e.stopPropagation(); setGifOpen(true); } }}
             style={{ width: 48, height: 48, borderRadius: 8, flexShrink: 0, background: "var(--bg)", border: "1px solid var(--line)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "var(--dim)", cursor: row.exercise.gifUrl ? "zoom-in" : "default" }}>
-            {row.exercise.gifUrl ? <img src={row.exercise.gifUrl} alt={row.exercise.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "💪"}
+            {row.exercise.gifUrl ? <ExerciseMedia url={row.exercise.gifUrl} name={row.exercise.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "💪"}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: allDone ? "var(--dim)" : "var(--text)" }}>{row.exercise.name}</div>
@@ -745,7 +758,7 @@ function TimedExerciseRow({ row, isFirst, onStartTimer, defaultOpen = true }: {
         <div onClick={() => setOpen((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer", userSelect: "none" }}>
           <div onClick={(e) => { if (row.exercise.gifUrl) { e.stopPropagation(); setGifOpen(true); } }}
             style={{ width: 44, height: 44, borderRadius: 7, flexShrink: 0, background: "var(--bg)", border: "1px solid var(--line)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "var(--dim)", cursor: row.exercise.gifUrl ? "zoom-in" : "default" }}>
-            {row.exercise.gifUrl ? <img src={row.exercise.gifUrl} alt={row.exercise.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "💪"}
+            {row.exercise.gifUrl ? <ExerciseMedia url={row.exercise.gifUrl} name={row.exercise.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "💪"}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)" }}>{row.exercise.name}</div>
@@ -791,7 +804,7 @@ function GroupCard({ label, color, children, openKey, activeKey, onToggle, previ
             {previewRows.map((r) => (
               <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <div style={{ width: 32, height: 32, borderRadius: 6, flexShrink: 0, background: "var(--bg)", border: "1px solid var(--line)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "var(--dim)" }}>
-                  {r.exercise.gifUrl ? <img src={r.exercise.gifUrl} alt={r.exercise.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "💪"}
+                  {r.exercise.gifUrl ? <ExerciseMedia url={r.exercise.gifUrl} name={r.exercise.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "💪"}
                 </div>
                 <span style={{ flex: 1, fontSize: 12, color: "var(--dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.exercise.name}</span>
                 <span style={{ fontSize: 11, color: "var(--dim)", fontFamily: "monospace", flexShrink: 0 }}>
@@ -1363,6 +1376,7 @@ function CheckinOverlay({ sessionId, onClose }: { sessionId: string; onClose: (s
     </div>
   );
 }
+
 
 
 
