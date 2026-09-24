@@ -73,7 +73,7 @@ export function ExerciseDrawer({
     const dy = e.clientY - p.startY;
 
     if (!p.holding) {
-      if (Math.hypot(dx, dy) > 10) cleanup(); // moved before hold fired → treat as scroll
+      if (Math.hypot(dx, dy) > 26) cleanup(); // moved before hold fired → treat as scroll
       return;
     }
 
