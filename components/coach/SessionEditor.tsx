@@ -1193,29 +1193,41 @@ function SessionTitle({
 }
 
 function RowMenuButton({ onDelete, onTimer }: { onDelete: () => void; onTimer: () => void }) {
-  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  function openMenu() {
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPos({ top: rect.bottom + 4, left: rect.right });
+  }
+
   return (
     <>
       <button
+        ref={btnRef}
         onMouseDown={(e) => e.stopPropagation()}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (pos ? setPos(null) : openMenu())}
         className="text-neutral-400 hover:text-neutral-700 px-1"
         title="More"
       >
         ⋮
       </button>
-      {open && (
+      {pos && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-50 rounded border bg-white shadow-lg text-xs">
+          <div className="fixed inset-0 z-[999]" onClick={() => setPos(null)} />
+          <div
+            className="fixed z-[1000] rounded border bg-white shadow-lg text-xs"
+            style={{ top: pos.top, left: pos.left, transform: "translateX(-100%)" }}
+          >
             <button
-              onClick={() => { onTimer(); setOpen(false); }}
+              onClick={() => { onTimer(); setPos(null); }}
               className="block w-full text-left px-3 py-1.5 text-neutral-700 hover:bg-neutral-50"
             >
               🕐 Timer
             </button>
             <button
-              onClick={() => { onDelete(); setOpen(false); }}
+              onClick={() => { onDelete(); setPos(null); }}
               className="block w-full text-left px-3 py-1.5 text-red-600 hover:bg-red-50"
             >
               Delete
@@ -1227,11 +1239,14 @@ function RowMenuButton({ onDelete, onTimer }: { onDelete: () => void; onTimer: (
   );
 }
 
-function NotePopup({ note, onClose }: { note: string; onClose: () => void }) {
+function NotePopup({ note, anchor, onClose }: { note: string; anchor: { top: number; left: number }; onClose: () => void }) {
   return (
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute z-50 right-0 top-7 w-56 rounded-lg border bg-white shadow-lg p-3 text-xs text-neutral-700 leading-relaxed">
+      <div className="fixed inset-0 z-[999]" onClick={onClose} />
+      <div
+        className="fixed z-[1000] w-56 rounded-lg border bg-white shadow-lg p-3 text-xs text-neutral-700 leading-relaxed"
+        style={{ top: anchor.top, left: anchor.left, transform: "translateX(-100%)" }}
+      >
         {note}
       </div>
     </>
@@ -1253,7 +1268,17 @@ function DraggablePill({
   onDragStart: (e: React.DragEvent) => void;
   accentColor?: string;
 }) {
-  const [noteOpen, setNoteOpen] = useState(false);
+  const [notePos, setNotePos] = useState<{ top: number; left: number } | null>(null);
+  const noteBtnRef = useRef<HTMLButtonElement>(null);
+
+  function toggleNote(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (notePos) { setNotePos(null); return; }
+    const rect = noteBtnRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setNotePos({ top: rect.bottom + 4, left: rect.right });
+  }
+
   return (
     <div className="relative shrink-0" onMouseDown={(e) => e.stopPropagation()}>
       <button
@@ -1271,7 +1296,8 @@ function DraggablePill({
       </button>
       {hasNote && (
         <button
-          onClick={(e) => { e.stopPropagation(); setNoteOpen((v) => !v); }}
+          ref={noteBtnRef}
+          onClick={toggleNote}
           className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 rounded-full border border-white text-[8px] flex items-center justify-center font-bold"
           style={{ background: "#f59e0b", color: "#fff" }}
           title="Coach note"
@@ -1279,7 +1305,7 @@ function DraggablePill({
           !
         </button>
       )}
-      {noteOpen && <NotePopup note={noteText ?? ""} onClose={() => setNoteOpen(false)} />}
+      {notePos && <NotePopup note={noteText ?? ""} anchor={notePos} onClose={() => setNotePos(null)} />}
     </div>
   );
 }
@@ -1597,6 +1623,7 @@ function DetailsModal({
     </>
   );
 }
+
 
 
 
