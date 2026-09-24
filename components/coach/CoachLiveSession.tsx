@@ -15,6 +15,7 @@ import type { Exercise, SessionExercise } from "@prisma/client";
 import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
 import { reorderSessionExercises } from "@/lib/actions/reorder-actions";
 import { CoachBottomMenu } from "@/components/coach/CoachBottomMenu";
+import { ExerciseDrawer } from "@/components/coach/ExerciseDrawer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -373,66 +374,6 @@ function ExerciseCard({
   );
 }
 
-// ─── Add exercise overlay ────────────────────────────────────────────────────
-
-function AddExerciseOverlay({
-  allExercises,
-  onAdd,
-  onClose,
-}: {
-  allExercises: Exercise[];
-  onAdd: (ex: Exercise) => void;
-  onClose: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return allExercises.slice(0, 30);
-    return allExercises.filter((e) => e.name.toLowerCase().includes(q)).slice(0, 30);
-  }, [query, allExercises]);
-
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.75)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end" }}>
-      <div style={{ width: "100%", maxWidth: 480, background: "var(--panel)", borderRadius: "18px 18px 0 0", padding: "16px 16px 32px", maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--text)" }}>Add exercise</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--dim)", fontSize: 20, cursor: "pointer" }}>✕</button>
-        </div>
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search exercises…"
-          style={{ width: "100%", height: 42, borderRadius: 10, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--text)", fontSize: 15, padding: "0 14px", marginBottom: 10, boxSizing: "border-box", outline: "none" }}
-        />
-        <div style={{ overflowY: "auto", flex: 1 }}>
-          {filtered.length === 0 && (
-            <div style={{ color: "var(--dim)", fontSize: 13, textAlign: "center", padding: 24 }}>No exercises found</div>
-          )}
-          {filtered.map((ex) => (
-            <button
-              key={ex.id}
-              onClick={() => onAdd(ex)}
-              style={{ width: "100%", textAlign: "left", padding: "12px 14px", borderRadius: 10, border: "none", background: "none", color: "var(--text)", fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 2, display: "block" }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-            >
-              {ex.name}
-              {ex.muscleGroups.length > 0 && (
-                <span style={{ display: "block", fontSize: 11, color: "var(--dim)", marginTop: 2, fontWeight: 400 }}>{ex.muscleGroups.slice(0, 3).join(", ")}</span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Block wrapper (single card or grouped superset, with reorder arrows) ─────
 
 function BlockWrapper({
@@ -509,21 +450,46 @@ export default function CoachLiveSession({
   const [exercises, setExercises] = useState<LiveExercise[]>(
     [...session.sessionExercises].sort((a, b) => a.order - b.order)
   );
-  const [showAddExercise, setShowAddExercise] = useState(false);
 
-  async function handleAddExercise(ex: Exercise) {
-    setShowAddExercise(false);
-    const created = await addExerciseToSession(session.id, ex.id);
-    if (!created) return;
-    const newRow: LiveExercise = {
-      ...(created as any),
-      exercise: ex,
-      loggedSets: [],
-    };
-    setExercises((prev) => [...prev, newRow]);
-  }
+  const listRef = useRef<HTMLDivElement>(null);
+  const blockRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const blocks = useMemo(() => buildBlocks(exercises), [exercises]);
+
+  function resolveDropIndex(x: number, y: number) {
+    const container = listRef.current;
+    if (!container) return null;
+    const rects = blockRefs.current
+      .slice(0, blocks.length)
+      .map((el) => el?.getBoundingClientRect() ?? null);
+    const valid = rects.filter(Boolean) as DOMRect[];
+    const cRect = container.getBoundingClientRect();
+
+    if (valid.length === 0) {
+      return { index: 0, y: cRect.top + 24, left: cRect.left, width: cRect.width };
+    }
+    const gapYs: number[] = [valid[0].top - 6];
+    for (let i = 0; i < valid.length - 1; i++) gapYs.push((valid[i].bottom + valid[i + 1].top) / 2);
+    gapYs.push(valid[valid.length - 1].bottom + 6);
+
+    let bestIdx = 0, bestDist = Infinity;
+    gapYs.forEach((gy, i) => { const d = Math.abs(gy - y); if (d < bestDist) { bestDist = d; bestIdx = i; } });
+
+    return { index: bestIdx, y: gapYs[bestIdx], left: cRect.left, width: cRect.width };
+  }
+
+  async function handleDrawerDrop(ex: Exercise, atIndex: number) {
+    const created = await addExerciseToSession(session.id, ex.id);
+    if (!created) return;
+    const newRow: LiveExercise = { ...(created as any), exercise: ex, loggedSets: [] };
+    setExercises((prev) => {
+      const blockList = buildBlocks(prev);
+      blockList.splice(atIndex, 0, { kind: "single", ex: newRow, index: -1 });
+      const flattened = flattenBlocks(blockList);
+      reorderSessionExercises(flattened.map((e) => e.id));
+      return flattened;
+    });
+  }
 
   function moveBlock(blockIdx: number, direction: -1 | 1) {
     const targetIdx = blockIdx + direction;
@@ -559,35 +525,29 @@ export default function CoachLiveSession({
         </div>
 
         <div style={{ padding: "16px 16px 120px", maxWidth: 480, margin: "0 auto" }}>
-          {blocks.map((block, i) => (
-            <BlockWrapper
-              key={blockKeyOf(block)}
-              block={block}
-              sessionId={session.id}
-              clientId={clientId}
-              defaultUnit={defaultUnit}
-              canMoveUp={i > 0}
-              canMoveDown={i < blocks.length - 1}
-              onMoveUp={() => moveBlock(i, -1)}
-              onMoveDown={() => moveBlock(i, 1)}
-            />
-          ))}
-
-          <button
-            onClick={() => setShowAddExercise(true)}
-            style={{ width: "100%", height: 52, borderRadius: 14, border: "1.5px dashed var(--line)", background: "none", color: "var(--dim)", fontSize: 15, fontWeight: 700, cursor: "pointer", letterSpacing: ".03em", marginTop: 4 }}
-          >
-            + Exercise
-          </button>
+          <div ref={listRef}>
+            {blocks.map((block, i) => (
+              <div key={blockKeyOf(block)} ref={(el) => { blockRefs.current[i] = el; }}>
+                <BlockWrapper
+                  block={block}
+                  sessionId={session.id}
+                  clientId={clientId}
+                  defaultUnit={defaultUnit}
+                  canMoveUp={i > 0}
+                  canMoveDown={i < blocks.length - 1}
+                  onMoveUp={() => moveBlock(i, -1)}
+                  onMoveDown={() => moveBlock(i, 1)}
+                />
+              </div>
+            ))}
+          </div>
         </div>
 
-        {showAddExercise && (
-          <AddExerciseOverlay
-            allExercises={allExercises}
-            onAdd={handleAddExercise}
-            onClose={() => setShowAddExercise(false)}
-          />
-        )}
+        <ExerciseDrawer
+          allExercises={allExercises}
+          resolveDropIndex={resolveDropIndex}
+          onDrop={handleDrawerDrop}
+        />
 
         <CoachBottomMenu links={[{ href: `/coach/clients/${clientId}/builder`, label: "← Builder" }]} />
       </div>
