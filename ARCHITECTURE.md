@@ -138,6 +138,20 @@ components/coach/ProgramBuilder.tsx        (the orchestrator — no visible UI i
        - Templates: list of saved templates, "Add to [client]" button.
 ```
 
+### Known gotcha — floating menus/popups clipped by group cards
+
+Circuit/Interval/EMOM/Superset group cards use `overflow: hidden` (for
+the rounded-corner border). Any dropdown or popup rendered with
+`position: absolute` inside a row in one of those cards gets clipped by
+that overflow — worst case, a popup opens off-screen with no way to see
+it (e.g. the last exercise in a superset). Fixed for `RowMenuButton`
+(the ⋯ menu) and `NotePopup` (the ! note popup) in `SessionEditor.tsx`:
+both now use `position: fixed`, computing screen coordinates from the
+trigger button's `getBoundingClientRect()` at click time, so they
+render above everything regardless of which container they're inside.
+**Any new floating menu/popup added inside a group card must follow the
+same pattern** — `position: absolute` will silently break again.
+
 ### Known gotcha — the exact bug class this file exists to prevent
 
 `builder/page.tsx` loads the client's programs/sessions ONE TIME via
@@ -158,9 +172,19 @@ app/client/today/page.tsx → components/client/TodayWorkout.tsx
   Today's session. ExerciseCard per exercise, DrumPicker for weight/reps.
   Confirming reps = the log trigger → POST /api/client/log-set
   Check-in overlay (sleep/mood/hydration/stress) → POST /api/client/checkin
+  `···` menu (top-right): Exercise History overlay | Programs | Rest Timer
+    ON/OFF | Sign Out.
+  - Exercise media: `ExerciseMedia` component (shared helper, also used by
+    `GifOverlay`) renders `<video>` when `exercise.gifUrl` ends in
+    `.webm`/`.mp4`, otherwise `<img>`. The field is still called `gifUrl`
+    in the schema even though it can hold a video URL now — don't assume
+    `gifUrl` means "always an image" when touching this code.
 
 app/client/dashboard/page.tsx → components/client/ClientDashboard.tsx
-  Month calendar (own sessions) + session preview + Templates tab.
+  ⚠ NOT part of the active client experience. This was an earlier
+  three-panel layout (month calendar + session preview + Templates tab)
+  that doesn't work well on phone. Clients land on TodayWorkout only —
+  don't assume ClientDashboard is what a client currently sees.
 
 components/client/ProgramsOverlay.tsx (opened from `···` menu on BOTH
   TodayWorkout and ClientDashboard, not tied to one page)
@@ -213,10 +237,14 @@ correlation scatter plots vs sleep/mood/stress/hydration).
 
 ```
 Coach ──< Client ──< Program ──< Session ──< SessionExercise ──< LoggedSet
-                │                                                    │
-                └────────────────────< CheckIn (1-per-session)       │
-                                                                       │
-                                        Exercise ───────────────────┘
+  │             │                                                    │
+  │             └───────────────────< CheckIn (1-per-session)        │
+  │                                                                    │
+  │                                    Exercise ───────────────────┘
+  │
+  └──< Program (isTemplate: true) ──< TemplatePurchase >── Client
+  └──< Bundle ──< BundleItem >── Program (isTemplate: true)
+              └──< BundlePurchase >── Client
 ```
 
 - **Coach**: one row per human coach (George, wife). `authUserId` links to Neon Auth.
@@ -240,6 +268,38 @@ If a bug involves "the data doesn't match what I expect", check the
 Prisma schema first for `?` (nullable) on the field in question — several
 fields here are nullable in ways that aren't obvious from the UI
 (`sessionId` on LoggedSet, `authUserId` on Client, `date` on Session).
+
+## Programs / Template Store & pricing
+
+A `Program` with `isTemplate: true` can also be sold or granted to
+clients, independent of being assigned to a live calendar.
+
+- **Pricing editor**: `/coach/templates` (Templates tab + Bundles tab).
+  A template with `price` set is public in the client-facing store; no
+  price = private. `discountFlat`/`discountPercent` are mutually
+  exclusive, with an optional `discountEndsAt`.
+- **Bundles**: `Bundle` groups ≥2 templates via `BundleItem`
+  (`@@unique` on `templateId` — a template can only be in one bundle at
+  a time), with its own price/discount fields, auto-computed pricing.
+- **Client-side store**: `components/client/ProgramsOverlay.tsx` shows
+  "Your programs" (owned via `TemplatePurchase`/`BundlePurchase`) and
+  "Available" (priced, not yet owned). `api/client/templates/route.ts`
+  returns both with an `unlocked: boolean` flag per template.
+- **⚠ There is no payment processor integrated.** Clients pay the coach
+  directly outside the app (cash/transfer) — this is a deliberate
+  choice, not a missing feature. The paid-access step is
+  `api/coach/templates/[id]/grant/route.ts`: the coach manually grants
+  a `TemplatePurchase` (with `grantedBy: coachId`, `pricePaid: null`)
+  after being paid. `TemplatePurchase.grantedBy` distinguishes a free
+  coach-grant from an eventual real paid purchase — if a payment
+  processor is added later, it would create `TemplatePurchase` rows the
+  same way but with `grantedBy: null` and `pricePaid` set.
+- Applying a purchased/granted template to a live calendar goes through
+  `api/client/templates/[id]/apply/route.ts` (whole program) or
+  `.../apply-single/route.ts` (one session) — see "Client-side flow"
+  above. Neither of those routes checks payment status again; ownership
+  is already established by the `TemplatePurchase`/`BundlePurchase` row
+  existing.
 
 ## Auth & roles — how "coach vs client" is decided
 
@@ -298,8 +358,17 @@ it's usually the tunnel or Ollama not running on the home PC.
 5. **If it's a mutation** (add/edit/delete something) — check `lib/actions/` first; most mutations are Server Actions, not API routes.
 6. **If it's cross-cutting** (auth, role, layout) — see the Auth section above.
 
+## Planned, not built
+
+Business direction and discussed-but-unbuilt features (in-app messaging,
+nutrition tracking, wearable sync, push notifications) live in the
+project's memory file (chat continuity, kept by George's AI assistant),
+not duplicated here. Don't assume any of those exist just because
+they've been discussed — check current code, not intentions.
+
 ## Also read
 
 - `SPEC.md` — the *design* decisions (why the stack, why no fuzzy exercise matching, pricing model, etc.)
 - `AI_CONTEXT.md` — a shorter request-phrase → file lookup table, meant for quick AI-session orientation. This file (ARCHITECTURE.md) is the deeper version for actual debugging.
+
 
