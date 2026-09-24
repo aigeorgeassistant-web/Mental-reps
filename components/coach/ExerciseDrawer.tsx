@@ -78,6 +78,7 @@ export function ExerciseDrawer({
     }
 
     if (!p.dragging) {
+      if (Math.hypot(dx, dy) < 16) return; // holding still — keep preview showing
       p.dragging = true;
       try { rowEl.setPointerCapture(p.pointerId); } catch {}
       setPreview(null);
