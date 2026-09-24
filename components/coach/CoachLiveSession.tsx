@@ -14,6 +14,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import type { Exercise, SessionExercise } from "@prisma/client";
 import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
 import { reorderSessionExercises } from "@/lib/actions/reorder-actions";
+import { CoachBottomMenu } from "@/components/coach/CoachBottomMenu";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -587,6 +588,8 @@ export default function CoachLiveSession({
             onClose={() => setShowAddExercise(false)}
           />
         )}
+
+        <CoachBottomMenu links={[{ href: `/coach/clients/${clientId}/builder`, label: "← Builder" }]} />
       </div>
     </>
   );
