@@ -14,6 +14,8 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import type { Exercise, SessionExercise } from "@prisma/client";
 import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
 import { reorderSessionExercises } from "@/lib/actions/reorder-actions";
+import { deleteSessionExercises } from "@/lib/actions/delete-actions";
+import { deleteSetForSession } from "@/lib/actions/live-edit-actions";
 import { CoachBottomMenu } from "@/components/coach/CoachBottomMenu";
 import { ExerciseDrawer } from "@/components/coach/ExerciseDrawer";
 
@@ -211,14 +213,18 @@ function DrumPicker({ values, initial, onConfirm, onClose, label }: {
 
 function SetRow({
   s, i, unit,
+  editMode,
   onPicker,
   onUncheck,
   onCheck,
+  onDelete,
 }: {
   s: SetState; i: number; unit: Units;
+  editMode: boolean;
   onPicker: (field: "weight" | "reps") => void;
   onUncheck: () => void;
   onCheck: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -231,6 +237,9 @@ function SetRow({
         {s.reps || "reps"}
       </button>
       <button onClick={() => s.done ? onUncheck() : onCheck()} style={{ width: 32, height: 32, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 18, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>✓</button>
+      {editMode && (
+        <button onClick={onDelete} style={{ width: 24, height: 24, borderRadius: 6, border: "none", background: "var(--accent-dim)", color: "var(--accent)", fontSize: 13, fontWeight: 900, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+      )}
     </div>
   );
 }
@@ -238,12 +247,14 @@ function SetRow({
 // ─── Exercise card ────────────────────────────────────────────────────────────
 
 function ExerciseCard({
-  ex, sessionId, clientId, defaultUnit,
+  ex, sessionId, clientId, defaultUnit, editMode, onDeleteExercise,
 }: {
   ex: LiveExercise;
   sessionId: string;
   clientId: string;
   defaultUnit: Units;
+  editMode: boolean;
+  onDeleteExercise: () => void;
 }) {
   const sessionExerciseId = ex.id;
   const exerciseId = ex.exerciseId;
@@ -318,6 +329,11 @@ function ExerciseCard({
     setSets((prev) => [...prev, { weight: prev[prev.length - 1]?.weight ?? prescribedWeight ?? 0, reps: prev[prev.length - 1]?.reps ?? prescribedReps ?? 0, done: false }]);
   }
 
+  async function doDeleteSet(idx: number) {
+    setSets((prev) => prev.filter((_, i) => i !== idx));
+    await deleteSetForSession(sessionExerciseId, idx);
+  }
+
   const doneSets = sets.filter((s) => s.done).length;
 
   return (
@@ -331,9 +347,14 @@ function ExerciseCard({
             </div>
           )}
         </div>
-        <span style={{ fontSize: 12, fontWeight: 700, color: doneSets === sets.length && sets.length > 0 ? "var(--good)" : "var(--dim)" }}>
-          {doneSets}/{sets.length}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: doneSets === sets.length && sets.length > 0 ? "var(--good)" : "var(--dim)" }}>
+            {doneSets}/{sets.length}
+          </span>
+          {editMode && (
+            <button onClick={onDeleteExercise} style={{ width: 26, height: 26, borderRadius: 7, border: "none", background: "var(--accent-dim)", color: "var(--accent)", fontSize: 14, fontWeight: 900, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+          )}
+        </div>
       </div>
 
       {sets.map((s, i) => (
@@ -342,6 +363,7 @@ function ExerciseCard({
           s={s}
           i={i}
           unit={unit}
+          editMode={editMode}
           onPicker={(field) => setPicker({ setIdx: i, field })}
           onUncheck={() => doUnlog(i)}
           onCheck={() => {
@@ -351,6 +373,7 @@ function ExerciseCard({
               return next;
             });
           }}
+          onDelete={() => doDeleteSet(i)}
         />
       ))}
 
@@ -379,6 +402,7 @@ function ExerciseCard({
 function BlockWrapper({
   block, sessionId, clientId, defaultUnit,
   canMoveUp, canMoveDown, onMoveUp, onMoveDown,
+  editMode, onDeleteExercise,
 }: {
   block: Block;
   sessionId: string;
@@ -388,6 +412,8 @@ function BlockWrapper({
   canMoveDown: boolean;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  editMode: boolean;
+  onDeleteExercise: (sessionExerciseId: string) => void;
 }) {
   const exs = block.kind === "single" ? [block.ex] : block.exs;
 
@@ -401,7 +427,15 @@ function BlockWrapper({
       <div style={{ display: "flex", gap: 6 }}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: block.kind === "group" ? 6 : 0 }}>
           {exs.map((ex) => (
-            <ExerciseCard key={ex.id} ex={ex} sessionId={sessionId} clientId={clientId} defaultUnit={defaultUnit} />
+            <ExerciseCard
+              key={ex.id}
+              ex={ex}
+              sessionId={sessionId}
+              clientId={clientId}
+              defaultUnit={defaultUnit}
+              editMode={editMode}
+              onDeleteExercise={() => onDeleteExercise(ex.id)}
+            />
           ))}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0, justifyContent: "center" }}>
@@ -450,6 +484,7 @@ export default function CoachLiveSession({
   const [exercises, setExercises] = useState<LiveExercise[]>(
     [...session.sessionExercises].sort((a, b) => a.order - b.order)
   );
+  const [editMode, setEditMode] = useState(false);
 
   const listRef = useRef<HTMLDivElement>(null);
   const blockRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -502,6 +537,11 @@ export default function CoachLiveSession({
     reorderSessionExercises(newList.map((e) => e.id));
   }
 
+  async function handleDeleteExercise(sessionExerciseId: string) {
+    setExercises((prev) => prev.filter((e) => e.id !== sessionExerciseId));
+    await deleteSessionExercises([sessionExerciseId]);
+  }
+
   const sessionLabel = session.dayLabel ?? (session.date ? new Date(session.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "Session");
   const totalExercises = exercises.length;
 
@@ -521,7 +561,21 @@ export default function CoachLiveSession({
             <div style={{ fontSize: 11, color: "var(--dim)", fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase" }}>{clientName}</div>
             <div style={{ fontSize: 16, fontWeight: 800 }}>{sessionLabel}</div>
           </div>
-          <div style={{ fontSize: 12, color: "var(--dim)", fontWeight: 600 }}>{totalExercises} exercise{totalExercises !== 1 ? "s" : ""}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 12, color: "var(--dim)", fontWeight: 600 }}>{totalExercises} exercise{totalExercises !== 1 ? "s" : ""}</span>
+            <button
+              onClick={() => setEditMode((v) => !v)}
+              style={{
+                width: 32, height: 32, borderRadius: 8, cursor: "pointer",
+                border: editMode ? "none" : "1px solid var(--line)",
+                background: editMode ? "var(--accent)" : "var(--panel)",
+                color: editMode ? "#fff" : "var(--dim)",
+                fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              ✎
+            </button>
+          </div>
         </div>
 
         <div style={{ padding: "16px 16px 120px", maxWidth: 480, margin: "0 auto" }}>
@@ -537,6 +591,8 @@ export default function CoachLiveSession({
                   canMoveDown={i < blocks.length - 1}
                   onMoveUp={() => moveBlock(i, -1)}
                   onMoveDown={() => moveBlock(i, 1)}
+                  editMode={editMode}
+                  onDeleteExercise={handleDeleteExercise}
                 />
               </div>
             ))}
