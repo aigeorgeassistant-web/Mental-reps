@@ -1,6 +1,11 @@
 "use server";
 // Deletes one or more SessionExercise rows. Used both for the single-row
-// "⋮ → Delete" menu and the multi-select trash button.
+// "⋮ → Delete" menu, the multi-select trash button, and the coach's
+// live-logging edit mode.
+//
+// Full purge: also deletes any LoggedSets that belonged to these rows (not
+// just unlinking them) and recomputes each affected client+exercise's PR
+// cache — deleting it outright if nothing is left to hold a PR.
 //
 // Safety net: if the row holding a Circuit's round count (always the
 // first exercise in the group) is being deleted, and other exercises in
@@ -11,13 +16,17 @@
 import { db } from "../db";
 import { parseIntervalTarget, buildIntervalTarget } from "../timerNotation";
 import { requireOwnedSessionExercises } from "./ownership";
+import { recomputeOrPurgePr } from "../pr-recompute";
 
 export async function deleteSessionExercises(ids: string[]) {
   const coach = await requireOwnedSessionExercises(ids);
   if (!coach) return;
 
   const idSet = new Set(ids);
-  const rows = await db.sessionExercise.findMany({ where: { id: { in: ids } } });
+  const rows = await db.sessionExercise.findMany({
+    where: { id: { in: ids } },
+    include: { session: { include: { program: true } } },
+  });
   const groupIds = [...new Set(rows.map((r) => r.groupId).filter((g): g is string => !!g))];
 
   for (const groupId of groupIds) {
@@ -42,6 +51,20 @@ export async function deleteSessionExercises(ids: string[]) {
         });
       }
     }
+  }
+
+  // Purge LoggedSets that belonged to these rows, then fix up each
+  // affected client+exercise's PR cache before the parent rows are gone.
+  await db.loggedSet.deleteMany({ where: { sessionExerciseId: { in: ids } } });
+
+  const affectedPairs = new Map<string, { clientId: string; exerciseId: string }>();
+  for (const r of rows) {
+    const clientId = r.session.program.clientId;
+    if (!clientId) continue;
+    affectedPairs.set(`${clientId}:${r.exerciseId}`, { clientId, exerciseId: r.exerciseId });
+  }
+  for (const { clientId, exerciseId } of affectedPairs.values()) {
+    await recomputeOrPurgePr(clientId, exerciseId);
   }
 
   await db.sessionExercise.deleteMany({ where: { id: { in: ids } } });
