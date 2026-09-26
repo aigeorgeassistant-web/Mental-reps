@@ -45,22 +45,29 @@ async function rankWithinSession(sessionExerciseId: string) {
 
 // For a given starting row, finds every same-rank occurrence of the same
 // exercise across the given day label(s) in the same program, in
-// chronological order (weekNumber if set, else date, else session.order
-// as a last-resort tiebreak). Also flags any OTHER day label in this
-// program that contains this exercise at all, so the builder can prompt
-// "also include Pull day?" before the coach commits to a day list.
+// chronological order — restricted to occurrences ON OR AFTER the
+// starting row's own session, so an exercise that already happened in
+// the past never gets pulled into a chain that starts today. Ordered by
+// real date when the program has one (a live client program); templates
+// have no dates, so week number + day order stands in for chronology
+// there instead. Also flags any OTHER day label in this program that
+// contains this exercise at all, so the builder can prompt "also include
+// Pull day?" before the coach commits to a day list.
 export async function detectGoalChain(sessionExerciseId: string, dayLabels: string[]) {
   const info = await rankWithinSession(sessionExerciseId);
   if (!info) return null;
 
-  const session = await db.session.findUnique({ where: { id: info.sessionId }, select: { programId: true, dayLabel: true } });
-  if (!session) return null;
-  const coach = await requireOwnedProgram(session.programId);
+  const refSession = await db.session.findUnique({
+    where: { id: info.sessionId },
+    select: { programId: true, dayLabel: true, date: true, weekNumber: true, order: true },
+  });
+  if (!refSession) return null;
+  const coach = await requireOwnedProgram(refSession.programId);
   if (!coach) return null;
 
   const candidateSessions = await db.session.findMany({
-    where: { programId: session.programId, dayLabel: { in: dayLabels } },
-    orderBy: [{ weekNumber: "asc" }, { date: "asc" }, { order: "asc" }],
+    where: { programId: refSession.programId, dayLabel: { in: dayLabels } },
+    orderBy: [{ date: "asc" }, { weekNumber: "asc" }, { order: "asc" }],
     include: {
       sessionExercises: {
         where: { exerciseId: info.exerciseId },
@@ -69,15 +76,26 @@ export async function detectGoalChain(sessionExerciseId: string, dayLabels: stri
     },
   });
 
+  // Only occurrences at or after the starting row — never something that
+  // already happened before the goal's own start date/week.
+  const onOrAfterStart = candidateSessions.filter((s) => {
+    if (refSession.date && s.date) return s.date >= refSession.date;
+    if (refSession.weekNumber != null && s.weekNumber != null) {
+      if (s.weekNumber !== refSession.weekNumber) return s.weekNumber >= refSession.weekNumber;
+      return s.order >= refSession.order;
+    }
+    return true;
+  });
+
   const chainIds: string[] = [];
-  for (const s of candidateSessions) {
+  for (const s of onOrAfterStart) {
     const match = s.sessionExercises[info.rank];
     if (match) chainIds.push(match.id);
   }
 
   const otherDayLabels = await db.session.findMany({
     where: {
-      programId: session.programId,
+      programId: refSession.programId,
       dayLabel: { notIn: dayLabels },
       sessionExercises: { some: { exerciseId: info.exerciseId } },
     },
@@ -86,7 +104,7 @@ export async function detectGoalChain(sessionExerciseId: string, dayLabels: stri
   });
 
   return {
-    programId: session.programId,
+    programId: refSession.programId,
     exerciseId: info.exerciseId,
     chainSessionExerciseIds: chainIds,
     otherDayLabelsFound: [...new Set(otherDayLabels.map((s) => s.dayLabel))],
@@ -114,7 +132,19 @@ export async function saveExerciseGoal(input: {
   baselineAnchor: number;
   existingGoalId?: string;
 }) {
-  const chain = await detectGoalChain(input.sessionExerciseId, input.dayLabels);
+  // Editing an existing goal must keep anchoring to its ORIGINAL start —
+  // reopening it from a later occurrence (say, week 3) and re-saving
+  // should never truncate weeks 1–2 off the front of the chain.
+  let anchorSessionExerciseId = input.sessionExerciseId;
+  if (input.existingGoalId) {
+    const firstLinked = await db.sessionExercise.findFirst({
+      where: { goalId: input.existingGoalId, goalOccurrence: 0 },
+      select: { id: true },
+    });
+    if (firstLinked) anchorSessionExerciseId = firstLinked.id;
+  }
+
+  const chain = await detectGoalChain(anchorSessionExerciseId, input.dayLabels);
   if (!chain) return null;
   if (chain.chainSessionExerciseIds.length === 0) return null;
 
