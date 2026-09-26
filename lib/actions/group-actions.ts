@@ -33,6 +33,20 @@ export async function assignSupersetGroup(sessionExerciseIds: string[], groupCol
   );
 }
 
+// Adds ONE existing SessionExercise row into an ALREADY-EXISTING superset —
+// reuses that group's own groupId/groupColor rather than minting a new one.
+// Used when the coach drags a new exercise from the live-logging drawer
+// straight onto a superset card.
+export async function joinExistingGroup(sessionExerciseId: string, groupId: string, groupColor: string | null) {
+  const coach = await requireOwnedSessionExercises([sessionExerciseId]);
+  if (!coach) return;
+
+  await db.sessionExercise.update({
+    where: { id: sessionExerciseId },
+    data: { groupId, groupColor },
+  });
+}
+
 export async function applyGroupCircuit(
   sessionExerciseIds: string[],
   workSec: number,
