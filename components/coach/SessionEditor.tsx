@@ -1403,7 +1403,8 @@ function RowLine({
       )}
 
       {/* Exercise name */}
-      <span data-role="exercise-name" className="min-w-0 shrink-0 cursor-pointer hover:underline" style={{ maxWidth: "28%" }}>
+      <span data-role="exercise-name" className="min-w-0 shrink-0 cursor-pointer hover:underline flex items-center gap-1" style={{ maxWidth: "28%" }}>
+        {row.goalId && <span title="Controlled by a Goal — edit via 🎯 menu">🎯</span>}
         {row.exercise.name}
       </span>
 
@@ -1444,9 +1445,9 @@ function RowLine({
           label={setsRepsLabel ?? "sets × reps"}
           hasNote={!!row.coachNote}
           noteText={row.coachNote ?? ""}
-          onEdit={onEditDetails}
+          onEdit={row.goalId ? onGoal : onEditDetails}
           onDragStart={onDragSets}
-          accentColor={setsRepsLabel ? "#2e8fff" : undefined}
+          accentColor={row.goalId ? "#f59e0b" : setsRepsLabel ? "#2e8fff" : undefined}
         />
       )}
 
@@ -1454,9 +1455,9 @@ function RowLine({
       {!locked && (
         <DraggablePill
           label={weightLabel ?? (row.loadUnit ? row.loadUnit.toLowerCase() : "kg")}
-          onEdit={onEditDetails}
+          onEdit={row.goalId ? onGoal : onEditDetails}
           onDragStart={onDragWeight}
-          accentColor={weightLabel ? "#8b5cf6" : undefined}
+          accentColor={row.goalId ? "#f59e0b" : weightLabel ? "#8b5cf6" : undefined}
         />
       )}
 
