@@ -34,3 +34,16 @@ export async function requireOwnedSession(sessionId: string) {
   });
   return owned ? coach : null;
 }
+
+// Same, for a Program id directly (used by actions that operate on a whole
+// program — e.g. goal chain detection — rather than specific rows).
+export async function requireOwnedProgram(programId: string) {
+  const { role, coach } = await getCurrentRole();
+  if (role !== "coach" || !coach) return null;
+
+  const owned = await db.program.findFirst({
+    where: { id: programId, coachId: coach.id },
+    select: { id: true },
+  });
+  return owned ? coach : null;
+}
