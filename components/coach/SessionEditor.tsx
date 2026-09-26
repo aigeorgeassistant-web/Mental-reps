@@ -207,6 +207,8 @@ export function SessionEditor({
         rpeEnabled: false,
         restSeconds: null,
         clientNote: null,
+        goalId: null,
+        goalOccurrence: null,
         _optimistic: true,
       };
       return [...prev, optimisticRow];
