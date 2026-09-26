@@ -34,6 +34,7 @@ app/
       builder/page.tsx           ← loads Client+Program+Sessions, renders ProgramBuilder
       edit/page.tsx               edit client details
       performance/page.tsx        renders PerformancePage
+      live/[sessionId]/page.tsx   ← renders CoachLiveSession (in-person logging)
     layout.tsx                 coach shell (nav etc.)
   client/                   client-only pages
     today/page.tsx              renders TodayWorkout
@@ -63,6 +64,10 @@ lib/
   taxonomy.ts     muscle group / equipment filter trees used by exercise picker
   timerNotation.ts parses/builds the "3x10", "40/20" etc. strings used by
                   circuit/interval/EMOM timers — the ONLY place that logic lives
+  pr-recompute.ts recomputeOrPurgePr(clientId, exerciseId) — shared by every
+                  delete path that removes LoggedSets, so ExercisePr never
+                  points at a row that no longer exists (deletes the PR row
+                  outright if nothing is left to hold one)
 
 prisma/
   schema.prisma           the data model — see "Data model" below
@@ -165,6 +170,90 @@ Same trap applies to the Month-view calendar: session chips for
 (`GET /api/coach/clients/[clientId]/sessions?month=...`, which returns
 `_hasLogs` per session) — not from the page's initial Prisma query either.
 
+## Coach Live Logging — page → component → API chain
+
+For a coach training a client in person and logging sets live on their
+own phone/tablet, separate from the builder (different device, different
+setting — the coach is on the gym floor, not planning).
+
+```
+app/coach/clients/[clientId]/live/[sessionId]/page.tsx
+  → Server Component. Loads the one session (with sessionExercises +
+    loggedSets + exercise) plus this coach's full exercise library.
+  → renders <CoachLiveSession session={...} allExercises={...} />
+
+components/coach/CoachLiveSession.tsx
+  - Header: client name, session label, exercise count, and the ✎ Edit
+    toggle (see below). CoachBottomMenu (bottom-left ···, same component
+    as every other coach page) carries a "← Builder" link back.
+  - `blocks = buildBlocks(exercises)` — same single/superset grouping
+    logic as the builder's SessionEditor, kept separate on purpose (this
+    view has its own drag mechanics — see gotcha below).
+  - ExerciseCard: DrumPicker weight/reps, a 40×40 GIF/webm thumbnail
+    (tap → full-screen GifOverlay — same ExerciseMedia/GifOverlay
+    components as client TodayWorkout, copied in rather than imported
+    since this file has no shared import path with components/client/),
+    "+ Set" for an extra set beyond prescribed.
+
+  Edit mode (✎ toggle in header) — everything below is hidden until on:
+  - Per-exercise ✕ → deleteSessionExercises (today's row only).
+  - Per-set ✕ → deleteSetForSession (today's slot only).
+  - Drag handle (⋮⋮) next to each block's label (or alone, for a single
+    exercise with no label) → reorders that whole block among the
+    others. Persists via reorderSessionExercises, same action the
+    builder uses.
+  - Drag handle (⋮⋮) on each exercise INSIDE a superset → reorders
+    within that superset only. Separate drag state from the block-level
+    one — see gotcha below.
+
+  ExerciseDrawer (components/coach/ExerciseDrawer.tsx) — the "+ exercise
+  on the spot" flow, built specifically for touch (the builder's
+  add-exercise flow assumes a mouse):
+  - Collapsed = small edge tab, right-middle of screen. Tap → half-
+    screen drawer slides in with search.
+  - Press and hold a result (~350ms, generous jitter tolerance) → GIF/
+    webm + muscle-group preview appears. Keep holding, move past a small
+    threshold → preview closes, a drag ghost + insertion indicator take
+    over. Drop over a gap between exercises → new single block there.
+    Drop ONTO a superset card → joins that superset (green outline
+    instead of a line). Drop back over the drawer, or release before
+    dragging → cancelled, nothing happens.
+  - `resolveDropTarget(x, y)` (in CoachLiveSession) does the geometry —
+    checks each block's `getBoundingClientRect()` first for a superset
+    hit, then falls back to nearest gap. `handleDrawerDrop` calls
+    `addExerciseToSession` (appends, same action the builder uses) then
+    either `reorderSessionExercises` alone (gap case) or that plus
+    `joinExistingGroup` (group case, to persist the groupId/groupColor
+    the append call couldn't have set).
+
+  All deletes here — and now the builder's multi-select/⋮ delete too
+  (`deleteSessionExercises` in `lib/actions/delete-actions.ts`) — fully
+  purge: LoggedSets belonging to a deleted SessionExercise are deleted
+  outright (not left with a null FK), and `recomputeOrPurgePr` fixes up
+  or removes the ExercisePr row afterward. `deleteSetForSession` (new,
+  `lib/actions/live-edit-actions.ts`) does the same for one set: deletes
+  the LoggedSet if one existed, shifts later setIndexes down by one so
+  they stay contiguous, decrements that day's `SessionExercise.sets` by
+  one, then recomputes/purges the PR. None of this touches a template or
+  next week's session — every row here belongs to this one date only.
+```
+
+### Known gotcha — two separate drag systems, on purpose
+
+The builder's SessionEditor drag (whole-row select, group drag) uses
+native HTML5 `draggable` — fine on desktop with a mouse, unreliable on
+touch. CoachLiveSession is used on a phone in a gym, so its three drag
+interactions (block reorder, intra-group reorder, drawer insert) are
+all hand-rolled with Pointer Events instead: `setPointerCapture` once a
+movement threshold is crossed, manual nearest-drop-target math via
+`getBoundingClientRect()`, no `dataTransfer`. **Do not copy the
+builder's drag pattern into this file** — it won't work on touch. The
+movement thresholds themselves matter more than they look: too small
+and a hold-to-preview gesture flips into a drag on finger tremor alone
+(hit this twice while building the drawer — the fix both times was a
+minimum-movement threshold on the POST-hold transition, not the
+pre-hold one, since the pre-hold check only guards against scrolling).
+
 ## Client-side flow
 
 ```
@@ -219,6 +308,7 @@ correlation scatter plots vs sleep/mood/stress/hydration).
 | `api/coach/clients/[clientId]/exercise-history/[exerciseId]/route.ts` | GET one exercise's recent logged sessions (right panel "Recent logs") |
 | `api/coach/clients/[clientId]/route.ts` | PATCH — coach edits their own client's profile fields (email, phone, healthNotes, generalNotes, equipment, birthday, favourite, status). Used by `ClientProfileModal` and `ClientRoster`. |
 | `api/coach/sessions/[sessionId]/route.ts` | GET one full session incl. `loggedSets` — used every time a session is opened in the builder |
+| `api/coach/live/log-set/route.ts` | POST/DELETE — same log-set logic as the client route, role-gated to coach, takes `clientId` in the body. Used by CoachLiveSession. |
 | `api/coach/sessions/[sessionId]/add-exercise/route.ts`, `.../group/route.ts` | mutate a session (most mutations are Server Actions instead — see `lib/actions/`) |
 | `api/coach/templates/route.ts` | GET all saved templates |
 | `api/coach/invite/route.ts`, `api/coach/unlink-client/route.ts` | client invite lifecycle |
