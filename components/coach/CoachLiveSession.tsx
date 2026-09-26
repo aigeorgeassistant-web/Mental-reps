@@ -16,8 +16,9 @@ import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
 import { reorderSessionExercises } from "@/lib/actions/reorder-actions";
 import { deleteSessionExercises } from "@/lib/actions/delete-actions";
 import { deleteSetForSession } from "@/lib/actions/live-edit-actions";
+import { joinExistingGroup } from "@/lib/actions/group-actions";
 import { CoachBottomMenu } from "@/components/coach/CoachBottomMenu";
-import { ExerciseDrawer } from "@/components/coach/ExerciseDrawer";
+import { ExerciseDrawer, type DropTarget } from "@/components/coach/ExerciseDrawer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -402,7 +403,7 @@ function ExerciseCard({
 function BlockWrapper({
   block, sessionId, clientId, defaultUnit,
   canMoveUp, canMoveDown, onMoveUp, onMoveDown,
-  editMode, onDeleteExercise,
+  editMode, onDeleteExercise, onReorderGroup,
 }: {
   block: Block;
   sessionId: string;
@@ -414,8 +415,52 @@ function BlockWrapper({
   onMoveDown: () => void;
   editMode: boolean;
   onDeleteExercise: (sessionExerciseId: string) => void;
+  onReorderGroup: (newExs: LiveExercise[]) => void;
 }) {
   const exs = block.kind === "single" ? [block.ex] : block.exs;
+
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+  const pendingRef = useRef<{ pointerId: number; startX: number; startY: number; idx: number; dragging: boolean } | null>(null);
+
+  function onHandleDown(e: React.PointerEvent, idx: number) {
+    pendingRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, idx, dragging: false };
+  }
+
+  function onHandleMove(e: React.PointerEvent, el: HTMLElement) {
+    const p = pendingRef.current;
+    if (!p || e.pointerId !== p.pointerId) return;
+    const dx = e.clientX - p.startX, dy = e.clientY - p.startY;
+    if (!p.dragging) {
+      if (Math.hypot(dx, dy) < 12) return;
+      p.dragging = true;
+      try { el.setPointerCapture(p.pointerId); } catch {}
+      setDragIdx(p.idx);
+    }
+    let best = 0, bestDist = Infinity;
+    rowRefs.current.forEach((r, i) => {
+      if (!r) return;
+      const rect = r.getBoundingClientRect();
+      const mid = (rect.top + rect.bottom) / 2;
+      const d = Math.abs(mid - e.clientY);
+      if (d < bestDist) { bestDist = d; best = i; }
+    });
+    setOverIdx(best);
+  }
+
+  function onHandleUp() {
+    const p = pendingRef.current;
+    if (p && p.dragging && overIdx !== null && overIdx !== p.idx && block.kind === "group") {
+      const newExs = [...exs];
+      const [moved] = newExs.splice(p.idx, 1);
+      newExs.splice(overIdx, 0, moved);
+      onReorderGroup(newExs);
+    }
+    pendingRef.current = null;
+    setDragIdx(null);
+    setOverIdx(null);
+  }
 
   return (
     <div style={{ marginBottom: 12 }}>
@@ -426,16 +471,44 @@ function BlockWrapper({
       )}
       <div style={{ display: "flex", gap: 6 }}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: block.kind === "group" ? 6 : 0 }}>
-          {exs.map((ex) => (
-            <ExerciseCard
+          {exs.map((ex, idx) => (
+            <div
               key={ex.id}
-              ex={ex}
-              sessionId={sessionId}
-              clientId={clientId}
-              defaultUnit={defaultUnit}
-              editMode={editMode}
-              onDeleteExercise={() => onDeleteExercise(ex.id)}
-            />
+              ref={(el) => { rowRefs.current[idx] = el; }}
+              style={{
+                position: "relative",
+                paddingLeft: block.kind === "group" && editMode ? 22 : 0,
+                outline: overIdx === idx && dragIdx !== null && dragIdx !== idx ? "2px solid var(--good)" : "none",
+                outlineOffset: 2,
+                borderRadius: 14,
+                opacity: dragIdx === idx ? 0.5 : 1,
+              }}
+            >
+              {block.kind === "group" && editMode && (
+                <button
+                  onPointerDown={(e) => onHandleDown(e, idx)}
+                  onPointerMove={(e) => onHandleMove(e, e.currentTarget)}
+                  onPointerUp={onHandleUp}
+                  onPointerCancel={onHandleUp}
+                  style={{
+                    position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)",
+                    width: 22, height: 36, display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "var(--dim)", fontSize: 14, cursor: "grab", touchAction: "none",
+                    background: "transparent", border: "none", zIndex: 5,
+                  }}
+                >
+                  ⋮⋮
+                </button>
+              )}
+              <ExerciseCard
+                ex={ex}
+                sessionId={sessionId}
+                clientId={clientId}
+                defaultUnit={defaultUnit}
+                editMode={editMode}
+                onDeleteExercise={() => onDeleteExercise(ex.id)}
+              />
+            </div>
           ))}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0, justifyContent: "center" }}>
@@ -491,9 +564,23 @@ export default function CoachLiveSession({
 
   const blocks = useMemo(() => buildBlocks(exercises), [exercises]);
 
-  function resolveDropIndex(x: number, y: number) {
+  function resolveDropTarget(x: number, y: number): DropTarget | null {
     const container = listRef.current;
     if (!container) return null;
+
+    // First: is the point inside a superset card? Join that group.
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (b.kind !== "group") continue;
+      const el = blockRefs.current[i];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (y >= r.top && y <= r.bottom) {
+        return { type: "group", groupId: b.exs[0].groupId as string, groupColor: b.color, top: r.top, bottom: r.bottom, left: r.left, width: r.width };
+      }
+    }
+
+    // Otherwise: nearest gap between blocks → new single block there.
     const rects = blockRefs.current
       .slice(0, blocks.length)
       .map((el) => el?.getBoundingClientRect() ?? null);
@@ -501,7 +588,7 @@ export default function CoachLiveSession({
     const cRect = container.getBoundingClientRect();
 
     if (valid.length === 0) {
-      return { index: 0, y: cRect.top + 24, left: cRect.left, width: cRect.width };
+      return { type: "gap", index: 0, y: cRect.top + 24, left: cRect.left, width: cRect.width };
     }
     const gapYs: number[] = [valid[0].top - 6];
     for (let i = 0; i < valid.length - 1; i++) gapYs.push((valid[i].bottom + valid[i + 1].top) / 2);
@@ -510,20 +597,37 @@ export default function CoachLiveSession({
     let bestIdx = 0, bestDist = Infinity;
     gapYs.forEach((gy, i) => { const d = Math.abs(gy - y); if (d < bestDist) { bestDist = d; bestIdx = i; } });
 
-    return { index: bestIdx, y: gapYs[bestIdx], left: cRect.left, width: cRect.width };
+    return { type: "gap", index: bestIdx, y: gapYs[bestIdx], left: cRect.left, width: cRect.width };
   }
 
-  async function handleDrawerDrop(ex: Exercise, atIndex: number) {
+  async function handleDrawerDrop(ex: Exercise, target: DropTarget) {
     const created = await addExerciseToSession(session.id, ex.id);
     if (!created) return;
     const newRow: LiveExercise = { ...(created as any), exercise: ex, loggedSets: [] };
-    setExercises((prev) => {
-      const blockList = buildBlocks(prev);
-      blockList.splice(atIndex, 0, { kind: "single", ex: newRow, index: -1 });
-      const flattened = flattenBlocks(blockList);
-      reorderSessionExercises(flattened.map((e) => e.id));
-      return flattened;
-    });
+
+    if (target.type === "group") {
+      newRow.groupId = target.groupId;
+      newRow.groupColor = target.groupColor;
+      setExercises((prev) => {
+        const blockList = buildBlocks(prev);
+        const idx = blockList.findIndex((b) => b.kind === "group" && b.exs[0].groupId === target.groupId);
+        if (idx === -1) return prev;
+        const gb = blockList[idx] as { kind: "group"; exs: LiveExercise[]; indices: number[]; color: string | null };
+        blockList[idx] = { ...gb, exs: [...gb.exs, newRow] };
+        const flattened = flattenBlocks(blockList);
+        reorderSessionExercises(flattened.map((e) => e.id));
+        joinExistingGroup(newRow.id, target.groupId, target.groupColor);
+        return flattened;
+      });
+    } else {
+      setExercises((prev) => {
+        const blockList = buildBlocks(prev);
+        blockList.splice(target.index, 0, { kind: "single", ex: newRow, index: -1 });
+        const flattened = flattenBlocks(blockList);
+        reorderSessionExercises(flattened.map((e) => e.id));
+        return flattened;
+      });
+    }
   }
 
   function moveBlock(blockIdx: number, direction: -1 | 1) {
@@ -540,6 +644,16 @@ export default function CoachLiveSession({
   async function handleDeleteExercise(sessionExerciseId: string) {
     setExercises((prev) => prev.filter((e) => e.id !== sessionExerciseId));
     await deleteSessionExercises([sessionExerciseId]);
+  }
+
+  function handleReorderGroup(blockIdx: number, newExs: LiveExercise[]) {
+    const newBlocks = [...blocks];
+    const b = newBlocks[blockIdx];
+    if (b.kind !== "group") return;
+    newBlocks[blockIdx] = { ...b, exs: newExs };
+    const newList = flattenBlocks(newBlocks);
+    setExercises(newList);
+    reorderSessionExercises(newList.map((e) => e.id));
   }
 
   const sessionLabel = session.dayLabel ?? (session.date ? new Date(session.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "Session");
@@ -593,6 +707,7 @@ export default function CoachLiveSession({
                   onMoveDown={() => moveBlock(i, 1)}
                   editMode={editMode}
                   onDeleteExercise={handleDeleteExercise}
+                  onReorderGroup={(newExs) => handleReorderGroup(i, newExs)}
                 />
               </div>
             ))}
@@ -601,7 +716,7 @@ export default function CoachLiveSession({
 
         <ExerciseDrawer
           allExercises={allExercises}
-          resolveDropIndex={resolveDropIndex}
+          resolveDropTarget={resolveDropTarget}
           onDrop={handleDrawerDrop}
         />
 
