@@ -13,6 +13,15 @@ export type DeloadBlock = { type: "deload"; min: number; max: number; intensity:
 export type RetestBlock = { type: "retest"; sets?: number };
 export type GoalBlockDef = WorkingBlock | DeloadBlock | RetestBlock;
 
+// Endurance blocks — same three-way shape (working / deload / retest), but
+// "target" here is which variable is FIXED: a working block fixes either
+// time (client goes for max output) or output (client goes for time).
+// Deload and retest both need a fixed side too, for the same reason.
+export type EnduranceWorkingBlock = { type: "working"; fixed: "time" | "output"; time?: number; output?: number };
+export type EnduranceDeloadBlock = { type: "deload"; fixed: "time" | "output"; time?: number; output?: number; intensity: number };
+export type EnduranceRetestBlock = { type: "retest"; fixed: "time" | "output"; time?: number; output?: number };
+export type EnduranceBlockDef = EnduranceWorkingBlock | EnduranceDeloadBlock | EnduranceRetestBlock;
+
 export function epley(weight: number, reps: number): number {
   return weight * (1 + reps / 30);
 }
@@ -82,4 +91,59 @@ export function computeAnchorForOccurrence(
     }
   }
   return anchor;
+}
+
+// ─── Endurance ──────────────────────────────────────────────────────────────
+// rate = output ÷ time(minutes) — always higher-is-better, no sign-flip
+// needed the way e1RM sometimes needs (lowerIsBetter exercises). Plays
+// exactly the role e1RM plays for strength.
+
+export function enduranceBlockForOccurrence(blocks: EnduranceBlockDef[], occurrenceIndex: number): EnduranceBlockDef {
+  return blocks[occurrenceIndex % blocks.length];
+}
+
+export function rate(output: number, timeSec: number): number {
+  return output / (timeSec / 60);
+}
+
+// A prescription given only a rate (no live logs) — same role as
+// staticPrescription, for the moment an Endurance goal is first saved.
+export function enduranceStaticPrescription(block: EnduranceBlockDef, anchorRate: number | null) {
+  if (block.type === "retest") {
+    if (block.fixed === "time") return { time: block.time ?? 300, output: null as number | null };
+    return { time: null as number | null, output: block.output ?? 1000 };
+  }
+  const effectiveRate = block.type === "deload" && anchorRate ? anchorRate * (block.intensity / 100) : anchorRate;
+  if (block.fixed === "time") {
+    const time = block.time ?? 300;
+    const output = effectiveRate ? Math.round(effectiveRate * (time / 60)) : null;
+    return { time, output };
+  }
+  const output = block.output ?? 1000;
+  const time = effectiveRate ? Math.round((output / effectiveRate) * 60) : null;
+  return { time, output };
+}
+
+// Same walk as computeAnchorForOccurrence, but for rate: deload never
+// updates it, retest replaces it outright, working uses whatever was
+// actually logged (output ÷ time) for that occurrence.
+export function computeRateForOccurrence(
+  occurrences: { output: number | null; timeSec: number | null }[],
+  blocks: EnduranceBlockDef[],
+  baselineRate: number,
+  targetIndex: number
+): number {
+  let r = baselineRate;
+  for (let i = 0; i < targetIndex; i++) {
+    const block = enduranceBlockForOccurrence(blocks, i);
+    const occ = occurrences[i];
+    if (!occ || occ.output == null || occ.timeSec == null) continue;
+
+    if (block.type === "deload") {
+      // no update — recovery, not data
+    } else {
+      r = rate(occ.output, occ.timeSec);
+    }
+  }
+  return r;
 }
