@@ -20,6 +20,28 @@ import { joinExistingGroup } from "@/lib/actions/group-actions";
 import { CoachBottomMenu } from "@/components/coach/CoachBottomMenu";
 import { ExerciseDrawer, type DropTarget } from "@/components/coach/ExerciseDrawer";
 
+// ─── Exercise media (GIF or WEBM) — same pattern as client TodayWorkout ────────
+
+function isVideoUrl(url: string) {
+  return /\.(webm|mp4)(\?|#|$)/i.test(url);
+}
+
+function ExerciseMedia({ url, name, style }: { url: string; name: string; style?: React.CSSProperties }) {
+  if (isVideoUrl(url)) {
+    return <video src={url} autoPlay loop muted playsInline style={style} />;
+  }
+  return <img src={url} alt={name} style={style} />;
+}
+
+function GifOverlay({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <ExerciseMedia url={url} name={name} style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 12, objectFit: "contain" }} />
+      <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,.15)", border: "none", color: "#fff", fontSize: 22, width: 40, height: 40, borderRadius: 20, cursor: "pointer" }}>✕</button>
+    </div>
+  );
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Units = "KG" | "LB";
@@ -279,6 +301,8 @@ function ExerciseCard({
   );
 
   const [picker, setPicker] = useState<{ setIdx: number; field: "weight" | "reps" } | null>(null);
+  const [gifOpen, setGifOpen] = useState(false);
+  const gifUrl = ex.exercise.gifUrl;
 
   async function doLog(idx: number, currentSets: SetState[]) {
     const s = currentSets[idx];
@@ -339,16 +363,25 @@ function ExerciseCard({
 
   return (
     <div style={{ background: "var(--panel)", borderRadius: 14, padding: "14px 14px 10px", border: "1px solid var(--line)" }}>
+      {gifOpen && gifUrl && <GifOverlay url={gifUrl} name={name} onClose={() => setGifOpen(false)} />}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)" }}>{name}</div>
-          {prescribedSets && prescribedReps && (
-            <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 2 }}>
-              {prescribedSets}×{prescribedReps}{prescribedWeight ? ` @ ${prescribedWeight}${unit.toLowerCase()}` : ""}
-            </div>
-          )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <div
+            onClick={() => gifUrl && setGifOpen(true)}
+            style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, background: "var(--bg)", border: "1px solid var(--line)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "var(--dim)", cursor: gifUrl ? "zoom-in" : "default" }}
+          >
+            {gifUrl ? <ExerciseMedia url={gifUrl} name={name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "💪"}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)" }}>{name}</div>
+            {prescribedSets && prescribedReps && (
+              <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 2 }}>
+                {prescribedSets}×{prescribedReps}{prescribedWeight ? ` @ ${prescribedWeight}${unit.toLowerCase()}` : ""}
+              </div>
+            )}
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: doneSets === sets.length && sets.length > 0 ? "var(--good)" : "var(--dim)" }}>
             {doneSets}/{sets.length}
           </span>
@@ -402,17 +435,12 @@ function ExerciseCard({
 
 function BlockWrapper({
   block, sessionId, clientId, defaultUnit,
-  canMoveUp, canMoveDown, onMoveUp, onMoveDown,
   editMode, onDeleteExercise, onReorderGroup,
 }: {
   block: Block;
   sessionId: string;
   clientId: string;
   defaultUnit: Units;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
   editMode: boolean;
   onDeleteExercise: (sessionExerciseId: string) => void;
   onReorderGroup: (newExs: LiveExercise[]) => void;
@@ -469,64 +497,46 @@ function BlockWrapper({
           Superset
         </div>
       )}
-      <div style={{ display: "flex", gap: 6 }}>
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: block.kind === "group" ? 6 : 0 }}>
-          {exs.map((ex, idx) => (
-            <div
-              key={ex.id}
-              ref={(el) => { rowRefs.current[idx] = el; }}
-              style={{
-                position: "relative",
-                paddingLeft: block.kind === "group" && editMode ? 22 : 0,
-                outline: overIdx === idx && dragIdx !== null && dragIdx !== idx ? "2px solid var(--good)" : "none",
-                outlineOffset: 2,
-                borderRadius: 14,
-                opacity: dragIdx === idx ? 0.5 : 1,
-              }}
-            >
-              {block.kind === "group" && editMode && (
-                <button
-                  onPointerDown={(e) => onHandleDown(e, idx)}
-                  onPointerMove={(e) => onHandleMove(e, e.currentTarget)}
-                  onPointerUp={onHandleUp}
-                  onPointerCancel={onHandleUp}
-                  style={{
-                    position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)",
-                    width: 22, height: 36, display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "var(--dim)", fontSize: 14, cursor: "grab", touchAction: "none",
-                    background: "transparent", border: "none", zIndex: 5,
-                  }}
-                >
-                  ⋮⋮
-                </button>
-              )}
-              <ExerciseCard
-                ex={ex}
-                sessionId={sessionId}
-                clientId={clientId}
-                defaultUnit={defaultUnit}
-                editMode={editMode}
-                onDeleteExercise={() => onDeleteExercise(ex.id)}
-              />
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0, justifyContent: "center" }}>
-          <button
-            onClick={onMoveUp}
-            disabled={!canMoveUp}
-            style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid var(--line)", background: "var(--panel)", color: canMoveUp ? "var(--text)" : "var(--line)", fontSize: 13, cursor: canMoveUp ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: block.kind === "group" ? 6 : 0 }}>
+        {exs.map((ex, idx) => (
+          <div
+            key={ex.id}
+            ref={(el) => { rowRefs.current[idx] = el; }}
+            style={{
+              position: "relative",
+              paddingLeft: block.kind === "group" && editMode ? 22 : 0,
+              outline: overIdx === idx && dragIdx !== null && dragIdx !== idx ? "2px solid var(--good)" : "none",
+              outlineOffset: 2,
+              borderRadius: 14,
+              opacity: dragIdx === idx ? 0.5 : 1,
+            }}
           >
-            ↑
-          </button>
-          <button
-            onClick={onMoveDown}
-            disabled={!canMoveDown}
-            style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid var(--line)", background: "var(--panel)", color: canMoveDown ? "var(--text)" : "var(--line)", fontSize: 13, cursor: canMoveDown ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}
-          >
-            ↓
-          </button>
-        </div>
+            {block.kind === "group" && editMode && (
+              <button
+                onPointerDown={(e) => onHandleDown(e, idx)}
+                onPointerMove={(e) => onHandleMove(e, e.currentTarget)}
+                onPointerUp={onHandleUp}
+                onPointerCancel={onHandleUp}
+                style={{
+                  position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)",
+                  width: 22, height: 36, display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "var(--dim)", fontSize: 14, cursor: "grab", touchAction: "none",
+                  background: "transparent", border: "none", zIndex: 5,
+                }}
+              >
+                ⋮⋮
+              </button>
+            )}
+            <ExerciseCard
+              ex={ex}
+              sessionId={sessionId}
+              clientId={clientId}
+              defaultUnit={defaultUnit}
+              editMode={editMode}
+              onDeleteExercise={() => onDeleteExercise(ex.id)}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -630,15 +640,52 @@ export default function CoachLiveSession({
     }
   }
 
-  function moveBlock(blockIdx: number, direction: -1 | 1) {
-    const targetIdx = blockIdx + direction;
-    if (targetIdx < 0 || targetIdx >= blocks.length) return;
-    const newBlocks = [...blocks];
-    const [moved] = newBlocks.splice(blockIdx, 1);
-    newBlocks.splice(targetIdx, 0, moved);
+  function handleReorderBlocks(newBlocks: Block[]) {
     const newList = flattenBlocks(newBlocks);
     setExercises(newList);
     reorderSessionExercises(newList.map((e) => e.id));
+  }
+
+  const [blockDragIdx, setBlockDragIdx] = useState<number | null>(null);
+  const [blockOverIdx, setBlockOverIdx] = useState<number | null>(null);
+  const blockPendingRef = useRef<{ pointerId: number; startX: number; startY: number; idx: number; dragging: boolean } | null>(null);
+
+  function onBlockHandleDown(e: React.PointerEvent, idx: number) {
+    blockPendingRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, idx, dragging: false };
+  }
+
+  function onBlockHandleMove(e: React.PointerEvent, el: HTMLElement) {
+    const p = blockPendingRef.current;
+    if (!p || e.pointerId !== p.pointerId) return;
+    const dx = e.clientX - p.startX, dy = e.clientY - p.startY;
+    if (!p.dragging) {
+      if (Math.hypot(dx, dy) < 12) return;
+      p.dragging = true;
+      try { el.setPointerCapture(p.pointerId); } catch {}
+      setBlockDragIdx(p.idx);
+    }
+    let best = 0, bestDist = Infinity;
+    blockRefs.current.slice(0, blocks.length).forEach((r, i) => {
+      if (!r) return;
+      const rect = r.getBoundingClientRect();
+      const mid = (rect.top + rect.bottom) / 2;
+      const d = Math.abs(mid - e.clientY);
+      if (d < bestDist) { bestDist = d; best = i; }
+    });
+    setBlockOverIdx(best);
+  }
+
+  function onBlockHandleUp() {
+    const p = blockPendingRef.current;
+    if (p && p.dragging && blockOverIdx !== null && blockOverIdx !== p.idx) {
+      const newBlocks = [...blocks];
+      const [moved] = newBlocks.splice(p.idx, 1);
+      newBlocks.splice(blockOverIdx, 0, moved);
+      handleReorderBlocks(newBlocks);
+    }
+    blockPendingRef.current = null;
+    setBlockDragIdx(null);
+    setBlockOverIdx(null);
   }
 
   async function handleDeleteExercise(sessionExerciseId: string) {
@@ -695,16 +742,39 @@ export default function CoachLiveSession({
         <div style={{ padding: "16px 16px 120px", maxWidth: 480, margin: "0 auto" }}>
           <div ref={listRef}>
             {blocks.map((block, i) => (
-              <div key={blockKeyOf(block)} ref={(el) => { blockRefs.current[i] = el; }}>
+              <div
+                key={blockKeyOf(block)}
+                ref={(el) => { blockRefs.current[i] = el; }}
+                style={{
+                  position: "relative",
+                  paddingLeft: editMode ? 24 : 0,
+                  outline: blockOverIdx === i && blockDragIdx !== null && blockDragIdx !== i ? "2px solid var(--good)" : "none",
+                  outlineOffset: 3,
+                  borderRadius: 16,
+                  opacity: blockDragIdx === i ? 0.5 : 1,
+                }}
+              >
+                {editMode && (
+                  <button
+                    onPointerDown={(e) => onBlockHandleDown(e, i)}
+                    onPointerMove={(e) => onBlockHandleMove(e, e.currentTarget)}
+                    onPointerUp={onBlockHandleUp}
+                    onPointerCancel={onBlockHandleUp}
+                    style={{
+                      position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)",
+                      width: 24, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+                      color: "var(--dim)", fontSize: 15, cursor: "grab", touchAction: "none",
+                      background: "transparent", border: "none", zIndex: 6,
+                    }}
+                  >
+                    ⋮⋮
+                  </button>
+                )}
                 <BlockWrapper
                   block={block}
                   sessionId={session.id}
                   clientId={clientId}
                   defaultUnit={defaultUnit}
-                  canMoveUp={i > 0}
-                  canMoveDown={i < blocks.length - 1}
-                  onMoveUp={() => moveBlock(i, -1)}
-                  onMoveDown={() => moveBlock(i, 1)}
                   editMode={editMode}
                   onDeleteExercise={handleDeleteExercise}
                   onReorderGroup={(newExs) => handleReorderGroup(i, newExs)}
