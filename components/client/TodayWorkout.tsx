@@ -14,6 +14,7 @@ import type { Exercise, Session, SessionExercise, Units } from "@prisma/client";
 import { parseIntervalTarget, resolveGroupTarget } from "@/lib/timerNotation";
 import { SignOutButton } from "@/components/shared/SignOutButton";
 import { ProgramsOverlay } from "@/components/client/ProgramsOverlay";
+import { getGoalPrescription } from "@/lib/actions/goal-actions";
 
 type Row = SessionExercise & { exercise: Exercise };
 type SessionWithRows = Session & { sessionExercises: Row[] };
@@ -517,6 +518,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   const [prPopupOpen, setPrPopupOpen] = useState(false);
   const [clientNote, setClientNote] = useState(row.clientNote ?? "");
   const [noteSaved, setNoteSaved] = useState(false);
+  const [goalInfo, setGoalInfo] = useState<{ occurrenceIndex: number; cycleLength: number; blockType: string; sets: number; reps: number | null; weight: number | null } | null>(null);
 
   function saveNote(value: string) {
     fetch(`/api/client/session-exercise/${row.id}/note`, {
@@ -533,15 +535,32 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
   useEffect(() => {
     fetch(`/api/client/exercises/${row.exerciseId}/history`)
       .then((r) => r.json())
-      .then((data: { sets: { sessionId: string | null; setIndex: number; weight: number | null; reps: number | null; notes: string | null; isPr?: boolean }[]; bestSet: { weight: number; reps: number; date: string } | null; lowerIsBetter: boolean }) => {
+      .then(async (data: { sets: { sessionId: string | null; setIndex: number; weight: number | null; reps: number | null; notes: string | null; isPr?: boolean }[]; bestSet: { weight: number; reps: number; date: string } | null; lowerIsBetter: boolean }) => {
         setPrBestSet(data.bestSet ?? null);
         const sessionSets = data.sets.filter((h) => h.sessionId === sessionId);
-        if (sessionSets.length === 0) return;
-        setSets((prev) => prev.map((ss, i) => {
-          const logged = sessionSets.find((h) => h.setIndex === i);
-          if (!logged) return ss;
-          return { ...ss, weight: logged.weight ?? ss.weight, reps: logged.reps ?? ss.reps, done: true };
-        }));
+        if (sessionSets.length > 0) {
+          setSets((prev) => prev.map((ss, i) => {
+            const logged = sessionSets.find((h) => h.setIndex === i);
+            if (!logged) return ss;
+            return { ...ss, weight: logged.weight ?? ss.weight, reps: logged.reps ?? ss.reps, done: true };
+          }));
+        }
+
+        if (row.goalId) {
+          const info = await getGoalPrescription(row.id);
+          if (info) {
+            setGoalInfo(info);
+            // Only override the prefill if nothing's logged yet THIS
+            // session — never clobber sets already entered.
+            if (sessionSets.length === 0) {
+              setSets((prev) => prev.map((ss) => ({
+                weight: info.weight ?? ss.weight,
+                reps: info.reps ?? ss.reps,
+                done: ss.done,
+              })));
+            }
+          }
+        }
       })
       .catch(() => setPrBestSet(null));
   }, [row.id, sessionId]);
@@ -685,8 +704,16 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
             {row.exercise.gifUrl ? <ExerciseMedia url={row.exercise.gifUrl} name={row.exercise.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "💪"}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: allDone ? "var(--dim)" : "var(--text)" }}>{row.exercise.name}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: allDone ? "var(--dim)" : "var(--text)" }}>
+              {row.goalId && <span style={{ marginRight: 4 }} title="Progression goal active">🎯</span>}
+              {row.exercise.name}
+            </div>
             {target && <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "monospace", marginTop: 1 }}>{target}</div>}
+            {goalInfo && (
+              <div style={{ fontSize: 10, color: "var(--blue)", fontWeight: 700, marginTop: 1 }}>
+                Cycle {(goalInfo.occurrenceIndex % goalInfo.cycleLength) + 1}/{goalInfo.cycleLength} · {goalInfo.blockType === "working" ? "Working" : goalInfo.blockType === "deload" ? "Deload" : "Retest"}
+              </div>
+            )}
           </div>
           {prBestSet !== "loading" && (
             <button
