@@ -20,10 +20,10 @@ type Block = WorkingBlock | DeloadBlock | RetestBlock;
 // Loosened for editing: local UI state just shuttles plain values into a
 // JSON blob on save, so a flat, permissive shape avoids fighting a
 // discriminated union while a block's type is still being switched.
-type EditableBlock = { type: Block["type"]; target?: "reps" | "weight"; min?: number; max?: number; fixedWeight?: number; intensity?: number };
+type EditableBlock = { type: Block["type"]; target?: "reps" | "weight"; min?: number; max?: number; fixedWeight?: number; intensity?: number; sets?: number };
 
 function defaultBlock(): EditableBlock {
-  return { type: "working", target: "reps", min: 5, max: 7 };
+  return { type: "working", target: "reps", min: 5, max: 7, sets: 3 };
 }
 
 export function GoalEditor({
@@ -82,8 +82,8 @@ export function GoalEditor({
     setBlocks((prev) =>
       prev.map((b, idx): EditableBlock => {
         if (idx !== i) return b;
-        if (type === "working") return { type: "working", target: "reps", min: 5, max: 7 };
-        if (type === "deload") return { type: "deload", min: 8, max: 10, intensity: 60 };
+        if (type === "working") return { type: "working", target: "reps", min: 5, max: 7, sets: 3 };
+        if (type === "deload") return { type: "deload", min: 8, max: 10, intensity: 60, sets: 2 };
         return { type: "retest" };
       })
     );
@@ -173,6 +173,13 @@ export function GoalEditor({
                     <option value="deload">Deload</option>
                     <option value="retest">Retest</option>
                   </select>
+
+                  {(b.type === "working" || b.type === "deload") && (
+                    <>
+                      <input type="number" value={b.sets ?? 3} onChange={(e) => updateBlock(i, { sets: Number(e.target.value) })} className="w-10 border rounded px-1 py-1 text-xs" title="Number of sets" />
+                      <span className="text-xs text-neutral-400">sets</span>
+                    </>
+                  )}
 
                   {b.type === "working" && (
                     <>
