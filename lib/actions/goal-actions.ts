@@ -19,9 +19,13 @@ import { requireOwnedProgram, requireOwnedSessionExercises } from "./ownership";
 import { getCurrentRole } from "@/lib/role";
 import {
   type GoalBlockDef,
+  type EnduranceBlockDef,
   blockForOccurrence,
   staticPrescription,
   computeAnchorForOccurrence,
+  enduranceBlockForOccurrence,
+  enduranceStaticPrescription,
+  computeRateForOccurrence,
 } from "@/lib/goalCalc";
 
 // Rank of `sessionExerciseId` among same-exerciseId rows within its own
@@ -128,10 +132,13 @@ export async function getExerciseGoal(sessionExerciseId: string) {
 export async function saveExerciseGoal(input: {
   sessionExerciseId: string;
   dayLabels: string[];
+  goalType?: "STRENGTH" | "ENDURANCE";
+  unit?: string;
   blocks: unknown[];
   baselineAnchor: number;
   existingGoalId?: string;
 }) {
+  const goalType = input.goalType ?? "STRENGTH";
   // Editing an existing goal must keep anchoring to its ORIGINAL start —
   // reopening it from a later occurrence (say, week 3) and re-saving
   // should never truncate weeks 1–2 off the front of the chain.
@@ -154,14 +161,15 @@ export async function saveExerciseGoal(input: {
   const goal = input.existingGoalId
     ? await db.exerciseGoal.update({
         where: { id: input.existingGoalId },
-        data: { dayLabels: input.dayLabels, blocks: input.blocks as any, baselineAnchor: input.baselineAnchor },
+        data: { dayLabels: input.dayLabels, blocks: input.blocks as any, baselineAnchor: input.baselineAnchor, type: goalType, unit: input.unit ?? null },
       })
     : await db.exerciseGoal.create({
         data: {
           programId: chain.programId,
           exerciseId: chain.exerciseId,
           dayLabels: input.dayLabels,
-          type: "STRENGTH",
+          type: goalType,
+          unit: input.unit ?? null,
           blocks: input.blocks as any,
           baselineAnchor: input.baselineAnchor,
         },
@@ -174,23 +182,40 @@ export async function saveExerciseGoal(input: {
     data: { goalId: null, goalOccurrence: null },
   });
 
-  const blocks = input.blocks as unknown as GoalBlockDef[];
-  for (let i = 0; i < chain.chainSessionExerciseIds.length; i++) {
-    const block = blockForOccurrence(blocks, i);
-    const prescription = staticPrescription(block, input.baselineAnchor);
-    const rowId = chain.chainSessionExerciseIds[i];
-    const existingRow = await db.sessionExercise.findUnique({ where: { id: rowId }, select: { loadUnit: true } });
-    await db.sessionExercise.update({
-      where: { id: rowId },
-      data: {
-        goalId: goal.id,
-        goalOccurrence: i,
-        sets: prescription.sets,
-        reps: prescription.reps,
-        loadValue: prescription.weight,
-        loadUnit: existingRow?.loadUnit ?? "KG",
-      },
-    });
+  if (goalType === "ENDURANCE") {
+    const blocks = input.blocks as unknown as EnduranceBlockDef[];
+    for (let i = 0; i < chain.chainSessionExerciseIds.length; i++) {
+      const block = enduranceBlockForOccurrence(blocks, i);
+      const p = enduranceStaticPrescription(block, input.baselineAnchor);
+      const rowId = chain.chainSessionExerciseIds[i];
+      const label =
+        block.fixed === "time"
+          ? `${Math.floor((p.time ?? 0) / 60)}:${String((p.time ?? 0) % 60).padStart(2, "0")}${p.output ? ` → ~${p.output}${input.unit ?? "m"}` : ""}`
+          : `${p.output ?? 0}${input.unit ?? "m"}${p.time ? ` → ~${Math.floor(p.time / 60)}:${String(Math.round(p.time % 60)).padStart(2, "0")}` : ""}`;
+      await db.sessionExercise.update({
+        where: { id: rowId },
+        data: { goalId: goal.id, goalOccurrence: i, sets: 1, reps: null, loadValue: null, target: label },
+      });
+    }
+  } else {
+    const blocks = input.blocks as unknown as GoalBlockDef[];
+    for (let i = 0; i < chain.chainSessionExerciseIds.length; i++) {
+      const block = blockForOccurrence(blocks, i);
+      const prescription = staticPrescription(block, input.baselineAnchor);
+      const rowId = chain.chainSessionExerciseIds[i];
+      const existingRow = await db.sessionExercise.findUnique({ where: { id: rowId }, select: { loadUnit: true } });
+      await db.sessionExercise.update({
+        where: { id: rowId },
+        data: {
+          goalId: goal.id,
+          goalOccurrence: i,
+          sets: prescription.sets,
+          reps: prescription.reps,
+          loadValue: prescription.weight,
+          loadUnit: existingRow?.loadUnit ?? "KG",
+        },
+      });
+    }
   }
 
   return goal;
@@ -220,10 +245,35 @@ export async function getGoalPrescription(sessionExerciseId: string) {
     },
   });
   if (!goal) return null;
+  const idx = se.goalOccurrence;
+
+  if (goal.type === "ENDURANCE") {
+    // Live recalculation from real logged distance/time isn't wired up
+    // yet — that needs its own input UI in the logging screens (they're
+    // weight/reps only today). This still returns the goal's saved
+    // static prescription for that occurrence so the indicator/label are
+    // accurate, just not yet auto-regulating off real performance.
+    const blocks = goal.blocks as unknown as EnduranceBlockDef[];
+    const block = enduranceBlockForOccurrence(blocks, idx);
+    const p = enduranceStaticPrescription(block, goal.baselineAnchor ?? 0);
+    return {
+      occurrenceIndex: idx,
+      cycleLength: blocks.length,
+      blockType: block.type,
+      goalType: "ENDURANCE" as const,
+      unit: goal.unit ?? "m",
+      time: p.time,
+      output: p.output,
+      sets: 1,
+      reps: null,
+      weight: null,
+      anchor: goal.baselineAnchor ?? 0,
+      liveTrackingSupported: false,
+    };
+  }
 
   const blocks = goal.blocks as unknown as GoalBlockDef[];
   const occurrences = goal.sessionExercises.map((s) => ({ loggedSets: s.loggedSets }));
-  const idx = se.goalOccurrence;
   const anchor = computeAnchorForOccurrence(occurrences, blocks, goal.baselineAnchor ?? 0, idx);
   const block = blockForOccurrence(blocks, idx);
   const prescription = staticPrescription(block, anchor);
@@ -232,10 +282,12 @@ export async function getGoalPrescription(sessionExerciseId: string) {
     occurrenceIndex: idx,
     cycleLength: blocks.length,
     blockType: block.type,
+    goalType: "STRENGTH" as const,
     sets: prescription.sets,
     reps: prescription.reps,
     weight: prescription.weight,
     anchor,
+    liveTrackingSupported: true,
   };
 }
 
