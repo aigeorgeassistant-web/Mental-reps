@@ -26,6 +26,25 @@ function defaultBlock(): EditableBlock {
   return { type: "working", target: "reps", min: 5, max: 7, sets: 3 };
 }
 
+// Endurance: same three-way shape, but "fixed" is which variable the
+// coach dictates — the other is measured. Both feed the same
+// output÷time rate the way weight/reps both feed e1RM.
+type EditableEnduranceBlock = { type: Block["type"]; fixed?: "time" | "output"; time?: number; output?: number; intensity?: number };
+
+function defaultEnduranceBlock(): EditableEnduranceBlock {
+  return { type: "working", fixed: "time", time: 300 };
+}
+
+function mmss(totalSec: number): string {
+  const m = Math.floor(totalSec / 60), s = Math.round(totalSec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+function parseMmss(str: string): number {
+  const parts = String(str).split(":");
+  if (parts.length === 2) return Number(parts[0]) * 60 + Number(parts[1]);
+  return Number(str) * 60;
+}
+
 export function GoalEditor({
   sessionExerciseId,
   exerciseName,
@@ -45,7 +64,10 @@ export function GoalEditor({
   const [dayLabels, setDayLabels] = useState<string[]>([currentDayLabel]);
   const [otherDayLabels, setOtherDayLabels] = useState<string[]>([]);
   const [occurrenceCount, setOccurrenceCount] = useState(0);
+  const [goalType, setGoalType] = useState<"STRENGTH" | "ENDURANCE">("STRENGTH");
+  const [unit, setUnit] = useState<"m" | "cal">("m");
   const [blocks, setBlocks] = useState<EditableBlock[]>([defaultBlock()]);
+  const [enduranceBlocks, setEnduranceBlocks] = useState<EditableEnduranceBlock[]>([defaultEnduranceBlock()]);
   const [baselineAnchor, setBaselineAnchor] = useState<number>(0);
   const [saving, setSaving] = useState(false);
 
@@ -55,7 +77,13 @@ export function GoalEditor({
       if (existing) {
         setExistingGoalId(existing.id);
         setDayLabels(existing.dayLabels);
-        setBlocks(existing.blocks as unknown as EditableBlock[]);
+        setGoalType(existing.type);
+        if (existing.type === "ENDURANCE") {
+          setEnduranceBlocks(existing.blocks as unknown as EditableEnduranceBlock[]);
+          setUnit((existing.unit as "m" | "cal") ?? "m");
+        } else {
+          setBlocks(existing.blocks as unknown as EditableBlock[]);
+        }
         setBaselineAnchor(existing.baselineAnchor ?? 0);
         if (existing.sessionExercises[0]) setChainAnchorId(existing.sessionExercises[0].id);
       }
@@ -93,9 +121,33 @@ export function GoalEditor({
   function addBlock() { setBlocks((prev) => [...prev, defaultBlock()]); }
   function removeBlock(i: number) { setBlocks((prev) => prev.filter((_, idx) => idx !== i)); }
 
+  function updateEBlock(i: number, patch: Partial<EditableEnduranceBlock>) {
+    setEnduranceBlocks((prev) => prev.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
+  }
+  function setEBlockType(i: number, type: Block["type"]) {
+    setEnduranceBlocks((prev) =>
+      prev.map((b, idx): EditableEnduranceBlock => {
+        if (idx !== i) return b;
+        if (type === "working") return { type: "working", fixed: "time", time: 300 };
+        if (type === "deload") return { type: "deload", fixed: "time", time: 300, intensity: 60 };
+        return { type: "retest", fixed: "output", output: 1000 };
+      })
+    );
+  }
+  function addEBlock() { setEnduranceBlocks((prev) => [...prev, defaultEnduranceBlock()]); }
+  function removeEBlock(i: number) { setEnduranceBlocks((prev) => prev.filter((_, idx) => idx !== i)); }
+
   async function handleSave() {
     setSaving(true);
-    await saveExerciseGoal({ sessionExerciseId, dayLabels, blocks, baselineAnchor, existingGoalId });
+    await saveExerciseGoal({
+      sessionExerciseId,
+      dayLabels,
+      goalType,
+      unit: goalType === "ENDURANCE" ? unit : undefined,
+      blocks: goalType === "ENDURANCE" ? enduranceBlocks : blocks,
+      baselineAnchor,
+      existingGoalId,
+    });
     setSaving(false);
     onSaved();
     onClose();
@@ -122,6 +174,21 @@ export function GoalEditor({
           <div className="text-xs text-neutral-500 py-6 text-center">Loading…</div>
         ) : (
           <>
+            <div className="mb-3 flex gap-2">
+              <button
+                onClick={() => setGoalType("STRENGTH")}
+                className={`flex-1 text-xs font-bold py-1.5 rounded border ${goalType === "STRENGTH" ? "bg-neutral-800 text-white border-neutral-800" : "bg-white text-neutral-500"}`}
+              >
+                Strength
+              </button>
+              <button
+                onClick={() => setGoalType("ENDURANCE")}
+                className={`flex-1 text-xs font-bold py-1.5 rounded border ${goalType === "ENDURANCE" ? "bg-neutral-800 text-white border-neutral-800" : "bg-white text-neutral-500"}`}
+              >
+                Endurance
+              </button>
+            </div>
+
             <div className="mb-3">
               <div className="text-xs font-semibold text-neutral-600 mb-1">Days included in this chain</div>
               <div className="flex flex-wrap gap-1.5 mb-1">
@@ -151,8 +218,20 @@ export function GoalEditor({
               )}
             </div>
 
+            {goalType === "ENDURANCE" && (
+              <div className="mb-3">
+                <label className="text-xs font-semibold text-neutral-600 block mb-1">Tracking unit</label>
+                <select value={unit} onChange={(e) => setUnit(e.target.value as "m" | "cal")} className="border rounded px-2 py-1 text-sm">
+                  <option value="m">Distance (m)</option>
+                  <option value="cal">Calories</option>
+                </select>
+              </div>
+            )}
+
             <div className="mb-3">
-              <label className="text-xs font-semibold text-neutral-600 block mb-1">Starting point (e1RM estimate, kg)</label>
+              <label className="text-xs font-semibold text-neutral-600 block mb-1">
+                {goalType === "ENDURANCE" ? `Starting rate (${unit}/min)` : "Starting point (e1RM estimate, kg)"}
+              </label>
               <input
                 type="number"
                 value={baselineAnchor}
@@ -161,6 +240,7 @@ export function GoalEditor({
               />
             </div>
 
+            {goalType === "STRENGTH" && (
             <div className="mb-3">
               <div className="text-xs font-semibold text-neutral-600 mb-1.5">Cycle (repeats if the chain runs longer)</div>
               {blocks.map((b, i) => (
@@ -235,6 +315,66 @@ export function GoalEditor({
                 + Add block
               </button>
             </div>
+            )}
+
+            {goalType === "ENDURANCE" && (
+            <div className="mb-3">
+              <div className="text-xs font-semibold text-neutral-600 mb-1.5">Cycle (repeats if the chain runs longer)</div>
+              {enduranceBlocks.map((b, i) => (
+                <div key={i} className="flex items-center gap-2 mb-1.5 bg-neutral-50 border rounded p-1.5 flex-wrap">
+                  <span className="text-xs text-neutral-400 w-5 flex-shrink-0">{i + 1}</span>
+                  <select
+                    value={b.type}
+                    onChange={(e) => setEBlockType(i, e.target.value as Block["type"])}
+                    className="text-xs border rounded px-1 py-1"
+                  >
+                    <option value="working">Working</option>
+                    <option value="deload">Deload</option>
+                    <option value="retest">Retest</option>
+                  </select>
+
+                  <div className="flex border rounded overflow-hidden flex-shrink-0">
+                    <button
+                      onClick={() => updateEBlock(i, { fixed: "time", time: b.time ?? 300 })}
+                      className={`text-xs px-2 py-1 ${b.fixed === "time" ? "bg-neutral-700 text-white" : "bg-white text-neutral-500"}`}
+                    >
+                      Time
+                    </button>
+                    <button
+                      onClick={() => updateEBlock(i, { fixed: "output", output: b.output ?? 1000 })}
+                      className={`text-xs px-2 py-1 ${b.fixed === "output" ? "bg-neutral-700 text-white" : "bg-white text-neutral-500"}`}
+                    >
+                      {unit === "m" ? "Dist" : "Cal"}
+                    </button>
+                  </div>
+
+                  {b.fixed === "time" ? (
+                    <input type="text" value={mmss(b.time ?? 300)} onChange={(e) => updateEBlock(i, { time: parseMmss(e.target.value) })} className="w-14 border rounded px-1 py-1 text-xs" placeholder="mm:ss" />
+                  ) : (
+                    <>
+                      <input type="number" value={b.output ?? 1000} onChange={(e) => updateEBlock(i, { output: Number(e.target.value) })} className="w-16 border rounded px-1 py-1 text-xs" />
+                      <span className="text-xs text-neutral-400">{unit}</span>
+                    </>
+                  )}
+
+                  {b.type === "deload" && (
+                    <>
+                      <span className="text-xs text-neutral-400">@</span>
+                      <input type="number" value={b.intensity ?? 60} onChange={(e) => updateEBlock(i, { intensity: Number(e.target.value) })} className="w-12 border rounded px-1 py-1 text-xs" />
+                      <span className="text-xs text-neutral-400">%</span>
+                    </>
+                  )}
+
+                  {b.type === "retest" && <span className="text-xs text-neutral-500">All-out effort — resets rate</span>}
+
+                  <button onClick={() => removeEBlock(i)} className="text-neutral-400 hover:text-red-600 ml-auto flex-shrink-0">✕</button>
+                </div>
+              ))}
+              <button onClick={addEBlock} className="w-full text-xs border border-dashed rounded py-1.5 text-neutral-500 hover:bg-neutral-50">
+                + Add block
+              </button>
+            </div>
+            )}
 
             <div className="flex gap-2 mt-4">
               {existingGoalId && (
