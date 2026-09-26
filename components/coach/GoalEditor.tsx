@@ -41,6 +41,7 @@ export function GoalEditor({
 }) {
   const [loading, setLoading] = useState(true);
   const [existingGoalId, setExistingGoalId] = useState<string | undefined>(undefined);
+  const [chainAnchorId, setChainAnchorId] = useState(sessionExerciseId);
   const [dayLabels, setDayLabels] = useState<string[]>([currentDayLabel]);
   const [otherDayLabels, setOtherDayLabels] = useState<string[]>([]);
   const [occurrenceCount, setOccurrenceCount] = useState(0);
@@ -56,6 +57,7 @@ export function GoalEditor({
         setDayLabels(existing.dayLabels);
         setBlocks(existing.blocks as unknown as EditableBlock[]);
         setBaselineAnchor(existing.baselineAnchor ?? 0);
+        if (existing.sessionExercises[0]) setChainAnchorId(existing.sessionExercises[0].id);
       }
       setLoading(false);
     })();
@@ -64,12 +66,12 @@ export function GoalEditor({
   useEffect(() => {
     if (loading) return;
     (async () => {
-      const chain = await detectGoalChain(sessionExerciseId, dayLabels);
+      const chain = await detectGoalChain(chainAnchorId, dayLabels);
       if (!chain) return;
       setOccurrenceCount(chain.chainSessionExerciseIds.length);
       setOtherDayLabels(chain.otherDayLabelsFound);
     })();
-  }, [dayLabels, loading, sessionExerciseId]);
+  }, [dayLabels, loading, chainAnchorId]);
 
   function toggleDayLabel(label: string) {
     setDayLabels((prev) => (prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label]));
