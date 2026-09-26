@@ -3,29 +3,33 @@
 // Right-edge exercise picker for CoachLiveSession.
 // Collapsed = small edge tab. Tap → half-screen drawer with search.
 // Hold a row → GIF/webm + muscle-group preview appears.
-// Keep holding + drag left, over the session list → insertion line shows
-// where it'll land. Release there → inserted. Release anywhere else
-// (back over the drawer, off-screen) → cancelled, nothing happens.
+// Keep holding + drag left, over the session list → indicator shows
+// where it'll land — a green line between exercises (new single block)
+// or a green outline around a superset card (joins that superset).
+// Release there → inserted. Release anywhere else (back over the
+// drawer, off-screen) → cancelled, nothing happens.
 
 import { useRef, useState } from "react";
 import type { Exercise } from "@prisma/client";
 
-type DropTarget = { index: number; y: number; left: number; width: number } | null;
+export type DropTarget =
+  | { type: "gap"; index: number; y: number; left: number; width: number }
+  | { type: "group"; groupId: string; groupColor: string | null; top: number; bottom: number; left: number; width: number };
 
 export function ExerciseDrawer({
   allExercises,
-  resolveDropIndex,
+  resolveDropTarget,
   onDrop,
 }: {
   allExercises: Exercise[];
-  resolveDropIndex: (x: number, y: number) => DropTarget;
-  onDrop: (ex: Exercise, index: number) => void;
+  resolveDropTarget: (x: number, y: number) => DropTarget | null;
+  onDrop: (ex: Exercise, target: DropTarget) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<{ ex: Exercise; x: number; y: number } | null>(null);
   const [ghost, setGhost] = useState<{ ex: Exercise; x: number; y: number } | null>(null);
-  const [indicator, setIndicator] = useState<DropTarget>(null);
+  const [indicator, setIndicator] = useState<DropTarget | null>(null);
 
   const drawerRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<{
@@ -36,7 +40,7 @@ export function ExerciseDrawer({
     holdTimer: ReturnType<typeof setTimeout>;
     holding: boolean;
     dragging: boolean;
-    dropIndex: number | null;
+    dropTarget: DropTarget | null;
   } | null>(null);
 
   const filtered = allExercises
@@ -62,7 +66,7 @@ export function ExerciseDrawer({
     }, 350);
     pendingRef.current = {
       ex, pointerId: e.pointerId, startX, startY,
-      holdTimer, holding: false, dragging: false, dropIndex: null,
+      holdTimer, holding: false, dragging: false, dropTarget: null,
     };
   }
 
@@ -88,11 +92,11 @@ export function ExerciseDrawer({
 
     const drawerLeft = drawerRef.current?.getBoundingClientRect().left ?? Infinity;
     if (e.clientX >= drawerLeft - 4) {
-      p.dropIndex = null;
+      p.dropTarget = null;
       setIndicator(null);
     } else {
-      const target = resolveDropIndex(e.clientX, e.clientY);
-      p.dropIndex = target ? target.index : null;
+      const target = resolveDropTarget(e.clientX, e.clientY);
+      p.dropTarget = target;
       setIndicator(target);
     }
   }
@@ -100,8 +104,8 @@ export function ExerciseDrawer({
   function onRowPointerUp(e: React.PointerEvent, ex: Exercise) {
     const p = pendingRef.current;
     if (!p || e.pointerId !== p.pointerId) return;
-    if (p.dragging && p.dropIndex !== null) {
-      onDrop(ex, p.dropIndex);
+    if (p.dragging && p.dropTarget) {
+      onDrop(ex, p.dropTarget);
       setOpen(false);
     }
     cleanup();
@@ -221,14 +225,24 @@ export function ExerciseDrawer({
         </div>
       )}
 
-      {/* Insertion indicator */}
-      {indicator && (
+      {/* Insertion indicator — line for a gap, outline for joining a superset */}
+      {indicator && indicator.type === "gap" && (
         <div
           style={{
             position: "fixed", left: indicator.left, top: indicator.y - 1.5,
             width: indicator.width, height: 3, background: "var(--good)",
             borderRadius: 2, zIndex: 260, pointerEvents: "none",
             boxShadow: "0 0 8px var(--good)",
+          }}
+        />
+      )}
+      {indicator && indicator.type === "group" && (
+        <div
+          style={{
+            position: "fixed", left: indicator.left - 3, top: indicator.top - 3,
+            width: indicator.width + 6, height: indicator.bottom - indicator.top + 6,
+            border: "3px solid var(--good)", borderRadius: 16, zIndex: 260, pointerEvents: "none",
+            boxShadow: "0 0 12px var(--good)",
           }}
         />
       )}
