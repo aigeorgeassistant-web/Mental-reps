@@ -17,8 +17,12 @@ type WorkingBlock = { type: "working"; target: "reps" | "weight"; min?: number; 
 type DeloadBlock = { type: "deload"; min: number; max: number; intensity: number };
 type RetestBlock = { type: "retest" };
 type Block = WorkingBlock | DeloadBlock | RetestBlock;
+// Loosened for editing: local UI state just shuttles plain values into a
+// JSON blob on save, so a flat, permissive shape avoids fighting a
+// discriminated union while a block's type is still being switched.
+type EditableBlock = { type: Block["type"]; target?: "reps" | "weight"; min?: number; max?: number; fixedWeight?: number; intensity?: number };
 
-function defaultBlock(): Block {
+function defaultBlock(): EditableBlock {
   return { type: "working", target: "reps", min: 5, max: 7 };
 }
 
@@ -40,7 +44,7 @@ export function GoalEditor({
   const [dayLabels, setDayLabels] = useState<string[]>([currentDayLabel]);
   const [otherDayLabels, setOtherDayLabels] = useState<string[]>([]);
   const [occurrenceCount, setOccurrenceCount] = useState(0);
-  const [blocks, setBlocks] = useState<Block[]>([defaultBlock()]);
+  const [blocks, setBlocks] = useState<EditableBlock[]>([defaultBlock()]);
   const [baselineAnchor, setBaselineAnchor] = useState<number>(0);
   const [saving, setSaving] = useState(false);
 
@@ -50,7 +54,7 @@ export function GoalEditor({
       if (existing) {
         setExistingGoalId(existing.id);
         setDayLabels(existing.dayLabels);
-        setBlocks(existing.blocks as unknown as Block[]);
+        setBlocks(existing.blocks as unknown as EditableBlock[]);
         setBaselineAnchor(existing.baselineAnchor ?? 0);
       }
       setLoading(false);
@@ -71,12 +75,12 @@ export function GoalEditor({
     setDayLabels((prev) => (prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label]));
   }
 
-  function updateBlock(i: number, patch: Partial<WorkingBlock & DeloadBlock>) {
-    setBlocks((prev) => prev.map((b, idx) => (idx === i ? ({ ...b, ...patch } as Block) : b)));
+  function updateBlock(i: number, patch: Partial<EditableBlock>) {
+    setBlocks((prev) => prev.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
   }
   function setBlockType(i: number, type: Block["type"]) {
     setBlocks((prev) =>
-      prev.map((b, idx) => {
+      prev.map((b, idx): EditableBlock => {
         if (idx !== i) return b;
         if (type === "working") return { type: "working", target: "reps", min: 5, max: 7 };
         if (type === "deload") return { type: "deload", min: 8, max: 10, intensity: 60 };
