@@ -38,6 +38,7 @@ import {
 } from "@/lib/timerNotation";
 import { PasteImportModal } from "@/components/coach/PasteImportModal";
 import { addExerciseToSession } from "@/lib/actions/add-exercise-actions";
+import { GoalEditor } from "@/components/coach/GoalEditor";
 
 type LoggedSetData = { setIndex: number; weight: number | null; reps: number | null; notes: string | null };
 type CheckInData = { sleep: number | null; mood: number | null; hydration: number | null; stress: number | null };
@@ -244,6 +245,7 @@ export function SessionEditor({
   const [reps, setReps] = useState<number | "">("");
 
   const [timerRowId, setTimerRowId] = useState<string | null>(null);
+  const [goalRowId, setGoalRowId] = useState<string | null>(null);
   const [timerMode, setTimerMode] = useState<"straight" | "interval" | "emom">("straight");
 
   const [headerEdit, setHeaderEdit] = useState<HeaderEditState | null>(null);
@@ -737,6 +739,7 @@ export function SessionEditor({
                   onEditTimer={() => openTimerEditor(row)}
                   onEditDetails={() => openDetailsEdit(row)}
                   onDelete={() => deleteOne(row.id)}
+                  onGoal={() => setGoalRowId(row.id)}
                   onDragSets={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-sets", rowId: row.id }); setDragIndex(null); setDragBlockKey(null); }}
                   onDragWeight={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-weight", rowId: row.id }); setDragIndex(null); setDragBlockKey(null); }}
                 />
@@ -780,6 +783,7 @@ export function SessionEditor({
                           onEditTimer={() => openTimerEditor(row)}
                           onEditDetails={() => openDetailsEdit(row)}
                           onDelete={() => deleteOne(row.id)}
+                          onGoal={() => setGoalRowId(row.id)}
                           onDragSets={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-sets", rowId: row.id }); setDragIndex(null); setDragBlockKey(null); }}
                           onDragWeight={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-weight", rowId: row.id }); setDragIndex(null); setDragBlockKey(null); }}
                         />
@@ -912,7 +916,7 @@ export function SessionEditor({
                           onDragStart={(e) => { e.stopPropagation(); setDragPayload({ kind: "copy-timing", rowId: row.id } as any); setDragIndex(null); setDragBlockKey(null); }}
                           accentColor="#10b981"
                         />
-                        <RowMenuButton onDelete={() => deleteOne(row.id)} onTimer={() => openTimerEditor(row)} />
+                        <RowMenuButton onDelete={() => deleteOne(row.id)} onTimer={() => openTimerEditor(row)} onGoal={() => setGoalRowId(row.id)} />
                       </div>
                     );
                   })}
@@ -1061,6 +1065,20 @@ export function SessionEditor({
         </>
       )}
 
+      {goalRowId && (() => {
+        const row = rows.find((r) => r.id === goalRowId);
+        if (!row) return null;
+        return (
+          <GoalEditor
+            sessionExerciseId={goalRowId}
+            exerciseName={row.exercise.name}
+            currentDayLabel={session.dayLabel}
+            onClose={() => setGoalRowId(null)}
+            onSaved={afterMutation}
+          />
+        );
+      })()}
+
       {headerEdit && (
         <>
           <div className="fixed inset-0 z-40 bg-black/20" onClick={() => setHeaderEdit(null)} />
@@ -1192,7 +1210,7 @@ function SessionTitle({
   );
 }
 
-function RowMenuButton({ onDelete, onTimer }: { onDelete: () => void; onTimer: () => void }) {
+function RowMenuButton({ onDelete, onTimer, onGoal }: { onDelete: () => void; onTimer: () => void; onGoal: () => void }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
@@ -1220,6 +1238,12 @@ function RowMenuButton({ onDelete, onTimer }: { onDelete: () => void; onTimer: (
             className="fixed z-[1000] rounded border bg-white shadow-lg text-xs"
             style={{ top: pos.top, left: pos.left, transform: "translateX(-100%)" }}
           >
+            <button
+              onClick={() => { onGoal(); setPos(null); }}
+              className="block w-full text-left px-3 py-1.5 text-neutral-700 hover:bg-neutral-50"
+            >
+              🎯 Goal
+            </button>
             <button
               onClick={() => { onTimer(); setPos(null); }}
               className="block w-full text-left px-3 py-1.5 text-neutral-700 hover:bg-neutral-50"
@@ -1324,6 +1348,7 @@ function RowLine({
   onEditTimer,
   onEditDetails,
   onDelete,
+  onGoal,
   onDragSets,
   onDragWeight,
 }: {
@@ -1340,6 +1365,7 @@ function RowLine({
   onEditTimer: () => void;
   onEditDetails: () => void;
   onDelete: () => void;
+  onGoal: () => void;
   onDragSets: (e: React.DragEvent) => void;
   onDragWeight: (e: React.DragEvent) => void;
 }) {
@@ -1432,7 +1458,7 @@ function RowLine({
         />
       )}
 
-      {!locked && <RowMenuButton onDelete={onDelete} onTimer={onEditTimer} />}
+      {!locked && <RowMenuButton onDelete={onDelete} onTimer={onEditTimer} onGoal={onGoal} />}
     </div>
   );
 }
