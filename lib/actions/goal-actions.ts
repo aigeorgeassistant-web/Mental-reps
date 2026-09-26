@@ -16,12 +16,13 @@
 
 import { db } from "../db";
 import { requireOwnedProgram, requireOwnedSessionExercises } from "./ownership";
-
-type GoalBlock =
-  | { type: "working"; target: "reps"; min: number; max: number }
-  | { type: "working"; target: "weight"; fixedWeight: number }
-  | { type: "deload"; min: number; max: number; intensity: number }
-  | { type: "retest" };
+import { getCurrentRole } from "@/lib/role";
+import {
+  type GoalBlockDef,
+  blockForOccurrence,
+  staticPrescription,
+  computeAnchorForOccurrence,
+} from "@/lib/goalCalc";
 
 // Rank of `sessionExerciseId` among same-exerciseId rows within its own
 // session, ordered by `order` — e.g. 0 if it's the first Chest Press that
@@ -142,14 +143,70 @@ export async function saveExerciseGoal(input: {
     where: { goalId: goal.id },
     data: { goalId: null, goalOccurrence: null },
   });
+
+  const blocks = input.blocks as unknown as GoalBlockDef[];
   for (let i = 0; i < chain.chainSessionExerciseIds.length; i++) {
+    const block = blockForOccurrence(blocks, i);
+    const prescription = staticPrescription(block, input.baselineAnchor);
+    const rowId = chain.chainSessionExerciseIds[i];
+    const existingRow = await db.sessionExercise.findUnique({ where: { id: rowId }, select: { loadUnit: true } });
     await db.sessionExercise.update({
-      where: { id: chain.chainSessionExerciseIds[i] },
-      data: { goalId: goal.id, goalOccurrence: i },
+      where: { id: rowId },
+      data: {
+        goalId: goal.id,
+        goalOccurrence: i,
+        sets: prescription.sets,
+        reps: prescription.reps,
+        loadValue: prescription.weight,
+        loadUnit: existingRow?.loadUnit ?? "KG",
+      },
     });
   }
 
   return goal;
+}
+
+export async function getGoalPrescription(sessionExerciseId: string) {
+  const se = await db.sessionExercise.findUnique({
+    where: { id: sessionExerciseId },
+    select: { goalId: true, goalOccurrence: true, session: { select: { program: { select: { coachId: true, clientId: true } } } } },
+  });
+  if (!se?.goalId || se.goalOccurrence == null) return null;
+
+  const { role, coach, client } = await getCurrentRole();
+  const program = se.session.program;
+  const allowed =
+    (role === "coach" && coach && program.coachId === coach.id) ||
+    (role === "client" && client && program.clientId === client.id);
+  if (!allowed) return null;
+
+  const goal = await db.exerciseGoal.findUnique({
+    where: { id: se.goalId },
+    include: {
+      sessionExercises: {
+        orderBy: { goalOccurrence: "asc" },
+        include: { loggedSets: { select: { weight: true, reps: true } } },
+      },
+    },
+  });
+  if (!goal) return null;
+
+  const blocks = goal.blocks as unknown as GoalBlockDef[];
+  const occurrences = goal.sessionExercises.map((s) => ({ loggedSets: s.loggedSets }));
+  const idx = se.goalOccurrence;
+  const anchor = computeAnchorForOccurrence(occurrences, blocks, goal.baselineAnchor ?? 0, idx);
+  const block = blockForOccurrence(blocks, idx);
+  const prescription = staticPrescription(block, anchor);
+
+  return {
+    occurrenceIndex: idx,
+    cycleLength: blocks.length,
+    blockType: block.type,
+    sets: prescription.sets,
+    reps: prescription.reps,
+    weight: prescription.weight,
+    anchor,
+  };
 }
 
 export async function removeExerciseGoal(goalId: string) {
