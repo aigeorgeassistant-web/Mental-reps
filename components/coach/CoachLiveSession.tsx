@@ -17,6 +17,7 @@ import { reorderSessionExercises } from "@/lib/actions/reorder-actions";
 import { deleteSessionExercises } from "@/lib/actions/delete-actions";
 import { deleteSetForSession } from "@/lib/actions/live-edit-actions";
 import { joinExistingGroup } from "@/lib/actions/group-actions";
+import { getGoalPrescription } from "@/lib/actions/goal-actions";
 import { CoachBottomMenu } from "@/components/coach/CoachBottomMenu";
 import { ExerciseDrawer, type DropTarget } from "@/components/coach/ExerciseDrawer";
 
@@ -303,6 +304,27 @@ function ExerciseCard({
   const [picker, setPicker] = useState<{ setIdx: number; field: "weight" | "reps" } | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
   const gifUrl = ex.exercise.gifUrl;
+  const [goalInfo, setGoalInfo] = useState<{ occurrenceIndex: number; cycleLength: number; blockType: string; sets: number; reps: number | null; weight: number | null } | null>(null);
+
+  useEffect(() => {
+    if (!ex.goalId) return;
+    let cancelled = false;
+    getGoalPrescription(ex.id).then((info) => {
+      if (cancelled || !info) return;
+      setGoalInfo(info);
+      // Only overwrite the prefill if nothing's been logged yet this
+      // occurrence — never clobber sets the client/coach already entered.
+      if (existingLogs.length === 0) {
+        setSets((prev) => prev.map((s) => ({
+          weight: info.weight ?? s.weight,
+          reps: info.reps ?? s.reps,
+          done: s.done,
+        })));
+      }
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ex.goalId, ex.id]);
 
   async function doLog(idx: number, currentSets: SetState[]) {
     const s = currentSets[idx];
@@ -360,6 +382,9 @@ function ExerciseCard({
   }
 
   const doneSets = sets.filter((s) => s.done).length;
+  const displaySets = goalInfo?.sets ?? prescribedSets;
+  const displayReps = goalInfo?.reps ?? prescribedReps;
+  const displayWeight = goalInfo?.weight ?? prescribedWeight;
 
   return (
     <div style={{ background: "var(--panel)", borderRadius: 14, padding: "14px 14px 10px", border: "1px solid var(--line)" }}>
@@ -373,10 +398,18 @@ function ExerciseCard({
             {gifUrl ? <ExerciseMedia url={gifUrl} name={name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "💪"}
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)" }}>{name}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)", display: "flex", alignItems: "center", gap: 5 }}>
+              {ex.goalId && <span title="Progression goal active">🎯</span>}
+              {name}
+            </div>
             {prescribedSets && prescribedReps && (
               <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 2 }}>
-                {prescribedSets}×{prescribedReps}{prescribedWeight ? ` @ ${prescribedWeight}${unit.toLowerCase()}` : ""}
+                {displaySets}×{displayReps}{displayWeight ? ` @ ${displayWeight}${unit.toLowerCase()}` : ""}
+              </div>
+            )}
+            {goalInfo && (
+              <div style={{ fontSize: 10, color: "var(--blue)", marginTop: 2, fontWeight: 700 }}>
+                Cycle {(goalInfo.occurrenceIndex % goalInfo.cycleLength) + 1}/{goalInfo.cycleLength} · {goalInfo.blockType === "working" ? "Working" : goalInfo.blockType === "deload" ? "Deload" : "Retest"}
               </div>
             )}
           </div>
