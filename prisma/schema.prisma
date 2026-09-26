@@ -35,6 +35,11 @@ enum SetType {
   CALORIES
 }
 
+enum GoalType {
+  STRENGTH
+  ENDURANCE
+}
+
 enum ExerciseSource {
   SHEET
   APP_QUICK_ADD
@@ -99,6 +104,7 @@ model Exercise {
   sessionExercises SessionExercise[]
   loggedSets       LoggedSet[]
   exercisePrs      ExercisePr[]
+  exerciseGoals    ExerciseGoal[]
 }
 
 // A reusable template (isTemplate=true) OR a live client program.
@@ -123,6 +129,7 @@ model Program {
   sessions          Session[]
   templatePurchases TemplatePurchase[]
   bundleItems       BundleItem[]
+  exerciseGoals     ExerciseGoal[]
 }
 
 // One "day" within a Program.
@@ -168,7 +175,44 @@ model SessionExercise {
   restSeconds Int?
   clientNote  String?
 
+  goalId         String?
+  goal           ExerciseGoal? @relation(fields: [goalId], references: [id])
+  goalOccurrence Int?
+
   loggedSets LoggedSet[]
+}
+
+// A coach-defined progression pattern attached to one exercise's recurring
+// slot within a Program (e.g. "Chest Press on Push day" across every week
+// of a template, or a single client's live copy of that once applied).
+// Scoped to ONE Program — never shared live across clients; applying a
+// template with a Goal duplicates this row into the client's own Program,
+// same as everything else a template copies forward.
+//
+// `blocks` is a small JSON array describing one cycle, e.g. for Strength:
+//   [{type:"working", target:"reps", min:5, max:7},
+//    {type:"working", target:"reps", min:5, max:7},
+//    {type:"working", target:"weight", fixedWeight:70},
+//    {type:"deload", min:8, max:10, intensity:60},
+//    {type:"retest"}]
+// The cycle repeats (occurrenceIndex % blocks.length) if the chain runs
+// longer than one cycle. No mutable running state is stored here — the
+// live calculator derives the current anchor by walking logged sets from
+// occurrence 0 up to the one being viewed, so nothing can drift out of
+// sync with edits made after the fact.
+model ExerciseGoal {
+  id             String   @id @default(cuid())
+  programId      String
+  program        Program  @relation(fields: [programId], references: [id])
+  exerciseId     String
+  exercise       Exercise @relation(fields: [exerciseId], references: [id])
+  dayLabels      String[]
+  type           GoalType @default(STRENGTH)
+  blocks         Json
+  baselineAnchor Float?
+  createdAt      DateTime @default(now())
+
+  sessionExercises SessionExercise[]
 }
 
 // Actual client-entered history. One row per set per exercise per session.
