@@ -109,7 +109,7 @@ export async function getExerciseGoal(sessionExerciseId: string) {
 export async function saveExerciseGoal(input: {
   sessionExerciseId: string;
   dayLabels: string[];
-  blocks: GoalBlock[];
+  blocks: unknown[];
   baselineAnchor: number;
   existingGoalId?: string;
 }) {
@@ -123,7 +123,7 @@ export async function saveExerciseGoal(input: {
   const goal = input.existingGoalId
     ? await db.exerciseGoal.update({
         where: { id: input.existingGoalId },
-        data: { dayLabels: input.dayLabels, blocks: input.blocks, baselineAnchor: input.baselineAnchor },
+        data: { dayLabels: input.dayLabels, blocks: input.blocks as any, baselineAnchor: input.baselineAnchor },
       })
     : await db.exerciseGoal.create({
         data: {
@@ -131,7 +131,7 @@ export async function saveExerciseGoal(input: {
           exerciseId: chain.exerciseId,
           dayLabels: input.dayLabels,
           type: "STRENGTH",
-          blocks: input.blocks,
+          blocks: input.blocks as any,
           baselineAnchor: input.baselineAnchor,
         },
       });
