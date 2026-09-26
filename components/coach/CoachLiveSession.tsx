@@ -436,6 +436,7 @@ function ExerciseCard({
 function BlockWrapper({
   block, sessionId, clientId, defaultUnit,
   editMode, onDeleteExercise, onReorderGroup,
+  onDragHandleDown, onDragHandleMove, onDragHandleUp, isDragging, isDropTarget,
 }: {
   block: Block;
   sessionId: string;
@@ -444,6 +445,11 @@ function BlockWrapper({
   editMode: boolean;
   onDeleteExercise: (sessionExerciseId: string) => void;
   onReorderGroup: (newExs: LiveExercise[]) => void;
+  onDragHandleDown: (e: React.PointerEvent) => void;
+  onDragHandleMove: (e: React.PointerEvent, el: HTMLElement) => void;
+  onDragHandleUp: () => void;
+  isDragging: boolean;
+  isDropTarget: boolean;
 }) {
   const exs = block.kind === "single" ? [block.ex] : block.exs;
 
@@ -491,10 +497,25 @@ function BlockWrapper({
   }
 
   return (
-    <div style={{ marginBottom: 12 }}>
-      {block.kind === "group" && (
-        <div style={{ margin: "0 0 4px 2px", padding: "2px 8px", borderRadius: 4, background: block.color ?? "#5c7a8a", fontSize: 9, fontWeight: 700, color: "#fff", display: "inline-block", letterSpacing: ".04em", textTransform: "uppercase" }}>
-          Superset
+    <div style={{ marginBottom: 12, outline: isDropTarget ? "2px solid var(--good)" : "none", outlineOffset: 3, borderRadius: 16, opacity: isDragging ? 0.5 : 1 }}>
+      {(editMode || block.kind === "group") && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 0 4px 2px" }}>
+          {editMode && (
+            <button
+              onPointerDown={onDragHandleDown}
+              onPointerMove={(e) => onDragHandleMove(e, e.currentTarget)}
+              onPointerUp={onDragHandleUp}
+              onPointerCancel={onDragHandleUp}
+              style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--dim)", fontSize: 14, cursor: "grab", touchAction: "none", background: "transparent", border: "none", padding: 0 }}
+            >
+              ⋮⋮
+            </button>
+          )}
+          {block.kind === "group" && (
+            <div style={{ padding: "2px 8px", borderRadius: 4, background: block.color ?? "#5c7a8a", fontSize: 9, fontWeight: 700, color: "#fff", display: "inline-block", letterSpacing: ".04em", textTransform: "uppercase" }}>
+              Superset
+            </div>
+          )}
         </div>
       )}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: block.kind === "group" ? 6 : 0 }}>
@@ -742,34 +763,7 @@ export default function CoachLiveSession({
         <div style={{ padding: "16px 16px 120px", maxWidth: 480, margin: "0 auto" }}>
           <div ref={listRef}>
             {blocks.map((block, i) => (
-              <div
-                key={blockKeyOf(block)}
-                ref={(el) => { blockRefs.current[i] = el; }}
-                style={{
-                  position: "relative",
-                  paddingLeft: editMode ? 24 : 0,
-                  outline: blockOverIdx === i && blockDragIdx !== null && blockDragIdx !== i ? "2px solid var(--good)" : "none",
-                  outlineOffset: 3,
-                  borderRadius: 16,
-                  opacity: blockDragIdx === i ? 0.5 : 1,
-                }}
-              >
-                {editMode && (
-                  <button
-                    onPointerDown={(e) => onBlockHandleDown(e, i)}
-                    onPointerMove={(e) => onBlockHandleMove(e, e.currentTarget)}
-                    onPointerUp={onBlockHandleUp}
-                    onPointerCancel={onBlockHandleUp}
-                    style={{
-                      position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)",
-                      width: 24, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
-                      color: "var(--dim)", fontSize: 15, cursor: "grab", touchAction: "none",
-                      background: "transparent", border: "none", zIndex: 6,
-                    }}
-                  >
-                    ⋮⋮
-                  </button>
-                )}
+              <div key={blockKeyOf(block)} ref={(el) => { blockRefs.current[i] = el; }}>
                 <BlockWrapper
                   block={block}
                   sessionId={session.id}
@@ -778,6 +772,11 @@ export default function CoachLiveSession({
                   editMode={editMode}
                   onDeleteExercise={handleDeleteExercise}
                   onReorderGroup={(newExs) => handleReorderGroup(i, newExs)}
+                  onDragHandleDown={(e) => onBlockHandleDown(e, i)}
+                  onDragHandleMove={onBlockHandleMove}
+                  onDragHandleUp={onBlockHandleUp}
+                  isDragging={blockDragIdx === i}
+                  isDropTarget={blockOverIdx === i && blockDragIdx !== null && blockDragIdx !== i}
                 />
               </div>
             ))}
