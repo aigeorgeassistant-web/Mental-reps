@@ -208,6 +208,7 @@ model ExerciseGoal {
   exercise       Exercise @relation(fields: [exerciseId], references: [id])
   dayLabels      String[]
   type           GoalType @default(STRENGTH)
+  unit           String?  // endurance only: "m" (distance) or "cal" (calories). Null for Strength.
   blocks         Json
   baselineAnchor Float?
   createdAt      DateTime @default(now())
