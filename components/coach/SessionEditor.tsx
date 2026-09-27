@@ -211,6 +211,7 @@ export function SessionEditor({
         clientNote: null,
         goalId: null,
         goalOccurrence: null,
+        metric: "REPS",
         _optimistic: true,
       };
       return [...prev, optimisticRow];
