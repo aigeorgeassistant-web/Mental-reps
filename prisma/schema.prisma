@@ -40,6 +40,12 @@ enum GoalType {
   ENDURANCE
 }
 
+enum ExerciseMetric {
+  REPS
+  DISTANCE
+  CALORIES
+}
+
 enum ExerciseSource {
   SHEET
   APP_QUICK_ADD
@@ -54,9 +60,24 @@ model Coach {
   email      String   @unique
   createdAt  DateTime @default(now())
 
-  clients  Client[]
-  programs Program[]
-  bundles  Bundle[]
+  clients             Client[]
+  programs            Program[]
+  bundles             Bundle[]
+  exercisePreferences CoachExercisePreference[]
+}
+
+// Remembers which metric (Reps/Distance/Calories) a coach last used for a
+// given exercise, so adding "Ski Erg" to a new session defaults to
+// whatever that coach actually uses it for — not always Reps. Updated
+// whenever the coach explicitly changes a row's metric.
+model CoachExercisePreference {
+  coachId    String
+  coach      Coach          @relation(fields: [coachId], references: [id])
+  exerciseId String
+  exercise   Exercise       @relation(fields: [exerciseId], references: [id])
+  metric     ExerciseMetric @default(REPS)
+
+  @@unique([coachId, exerciseId])
 }
 
 // A coach's client. Notes are split per SPEC.md §5 — Health/mobility notes
@@ -105,6 +126,7 @@ model Exercise {
   loggedSets       LoggedSet[]
   exercisePrs      ExercisePr[]
   exerciseGoals    ExerciseGoal[]
+  coachPreferences CoachExercisePreference[]
 }
 
 // A reusable template (isTemplate=true) OR a live client program.
@@ -165,6 +187,13 @@ model SessionExercise {
   coachNote String?
   target    String?
 
+  // What the middle "reps" box actually counts. REPS is the classic
+  // case (unchanged). DISTANCE/CALORIES repurpose the same `reps` field
+  // to mean seconds elapsed and `loadValue` to mean the distance/calorie
+  // amount, whichever side a Goal's block hasn't fixed for that
+  // occurrence — see ExerciseGoal for how "fixed" is decided.
+  metric ExerciseMetric @default(REPS)
+
   groupId    String?
   groupColor String?
 
@@ -208,9 +237,12 @@ model ExerciseGoal {
   exercise       Exercise @relation(fields: [exerciseId], references: [id])
   dayLabels      String[]
   type           GoalType @default(STRENGTH)
-  unit           String?  // endurance only: "m" (distance) or "cal" (calories). Null for Strength.
   blocks         Json
   baselineAnchor Float?
+  // Endurance only, optional: a fixed weight the client carries/holds
+  // (farmer's carry, weighted step-ups) — set once by the coach, never
+  // logged or edited by the client, doesn't progress week to week.
+  constantWeight Float?
   createdAt      DateTime @default(now())
 
   sessionExercises SessionExercise[]
