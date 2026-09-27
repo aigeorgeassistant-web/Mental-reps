@@ -97,6 +97,13 @@ export function computeAnchorForOccurrence(
 // rate = output ÷ time(minutes) — always higher-is-better, no sign-flip
 // needed the way e1RM sometimes needs (lowerIsBetter exercises). Plays
 // exactly the role e1RM plays for strength.
+//
+// Reuses LoggedSet's existing weight/reps fields rather than new columns:
+// weight = output (distance or calories, whichever the row's metric is),
+// reps = time in whole seconds. Whichever side a block fixes gets
+// auto-filled with the known value when a set is saved — the client only
+// ever types the OTHER side — so both fields are always populated and
+// this walk never has to guess which one was the real input.
 
 export function enduranceBlockForOccurrence(blocks: EnduranceBlockDef[], occurrenceIndex: number): EnduranceBlockDef {
   return blocks[occurrenceIndex % blocks.length];
@@ -107,28 +114,33 @@ export function rate(output: number, timeSec: number): number {
 }
 
 // A prescription given only a rate (no live logs) — same role as
-// staticPrescription, for the moment an Endurance goal is first saved.
+// staticPrescription, for the moment an Endurance goal is first saved or
+// for showing the current target before anything's logged. Returns which
+// side is fixed so the UI knows which box to lock vs. let the client type
+// into.
 export function enduranceStaticPrescription(block: EnduranceBlockDef, anchorRate: number | null) {
   if (block.type === "retest") {
-    if (block.fixed === "time") return { time: block.time ?? 300, output: null as number | null };
-    return { time: null as number | null, output: block.output ?? 1000 };
+    if (block.fixed === "time") return { time: block.time ?? 300, output: null as number | null, fixed: "time" as const };
+    return { time: null as number | null, output: block.output ?? 1000, fixed: "output" as const };
   }
   const effectiveRate = block.type === "deload" && anchorRate ? anchorRate * (block.intensity / 100) : anchorRate;
   if (block.fixed === "time") {
     const time = block.time ?? 300;
     const output = effectiveRate ? Math.round(effectiveRate * (time / 60)) : null;
-    return { time, output };
+    return { time, output, fixed: "time" as const };
   }
   const output = block.output ?? 1000;
   const time = effectiveRate ? Math.round((output / effectiveRate) * 60) : null;
-  return { time, output };
+  return { time, output, fixed: "output" as const };
 }
 
 // Same walk as computeAnchorForOccurrence, but for rate: deload never
 // updates it, retest replaces it outright, working uses whatever was
-// actually logged (output ÷ time) for that occurrence.
+// actually logged (output ÷ time) for that occurrence. `loggedSets` here
+// is the SAME shape as strength's (weight/reps) — weight read as output,
+// reps read as time-in-seconds.
 export function computeRateForOccurrence(
-  occurrences: { output: number | null; timeSec: number | null }[],
+  occurrences: { loggedSets: { weight: number | null; reps: number | null }[] }[],
   blocks: EnduranceBlockDef[],
   baselineRate: number,
   targetIndex: number
@@ -137,12 +149,16 @@ export function computeRateForOccurrence(
   for (let i = 0; i < targetIndex; i++) {
     const block = enduranceBlockForOccurrence(blocks, i);
     const occ = occurrences[i];
-    if (!occ || occ.output == null || occ.timeSec == null) continue;
+    if (!occ) continue;
+    const valid = occ.loggedSets.filter((s) => s.weight != null && s.reps != null) as { weight: number; reps: number }[];
+    if (valid.length === 0) continue;
 
     if (block.type === "deload") {
       // no update — recovery, not data
     } else {
-      r = rate(occ.output, occ.timeSec);
+      // Single continuous effort per occurrence (sets is always 1 for
+      // Endurance rows), so there's only ever one set to read.
+      r = rate(valid[0].weight, valid[0].reps);
     }
   }
   return r;
