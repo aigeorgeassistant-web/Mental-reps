@@ -22,6 +22,25 @@ import {
 type RightPanelTab = "detail" | "browse" | "templates";
 type ClientRow = { id: string; name: string };
 type SessionRow = { id: string; dayLabel: string; date: string };
+type PreviewSessionExercise = {
+  id: string;
+  order: number;
+  sets: number | null;
+  reps: number | null;
+  loadValue: number | null;
+  loadUnit: string | null;
+  setType: string;
+  groupId: string | null;
+  groupColor: string | null;
+  target: string | null;
+  exercise: { id: string; name: string };
+};
+type PreviewSession = {
+  id: string;
+  dayLabel: string;
+  date: string | null;
+  sessionExercises: PreviewSessionExercise[];
+};
 type TemplateSession = { id: string; weekNumber: number | null; dayLabel: string; order: number };
 type TemplateRow = { id: string; name: string; sessions: TemplateSession[] };
 
@@ -347,6 +366,8 @@ function BrowseCalendar({
   loading,
   browseClientId,
   onDropFromLeft,
+  onSelectSession,
+  selectedSessionId,
 }: {
   monthCursor: Date;
   setMonthCursor: (d: Date) => void;
@@ -354,6 +375,8 @@ function BrowseCalendar({
   loading: boolean;
   browseClientId: string;
   onDropFromLeft: (e: React.DragEvent, dateKey: string) => void;
+  onSelectSession: (session: SessionRow) => void;
+  selectedSessionId: string | null;
 }) {
   const [dragOver, setDragOver] = useState<string | null>(null);
   const days = useMemo(() => buildMonthGrid(monthCursor), [monthCursor]);
@@ -395,8 +418,13 @@ function BrowseCalendar({
                           sourceClientId: browseClientId,
                         }));
                       }}
-                      className="mt-auto truncate rounded bg-neutral-700 text-white px-0.5 py-0.5 text-left cursor-grab active:cursor-grabbing leading-none"
-                      title={daySessions[0].dayLabel}
+                      onClick={() => onSelectSession(daySessions[0])}
+                      className={`mt-auto truncate rounded px-0.5 py-0.5 text-left cursor-grab active:cursor-grabbing leading-none ${
+                        selectedSessionId === daySessions[0].id
+                          ? "bg-blue-600 text-white ring-1 ring-blue-300"
+                          : "bg-neutral-700 text-white"
+                      }`}
+                      title={`${daySessions[0].dayLabel} — click to preview`}
                     >
                       {daySessions[0].dayLabel}
                     </div>
@@ -431,6 +459,9 @@ function BrowseClientsView({
   );
   const [loading, setLoading] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [previewSessionId, setPreviewSessionId] = useState<string | null>(null);
+  const [previewSession, setPreviewSession] = useState<PreviewSession | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/coach/clients")
@@ -494,9 +525,29 @@ function BrowseClientsView({
     return map;
   }, [sessions]);
 
-  const filtered = clients.filter(
-    (c) => c.id !== currentClientId && c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = clients
+    .filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      if (a.id === currentClientId) return -1;
+      if (b.id === currentClientId) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+  function selectSession(session: SessionRow) {
+    if (previewSessionId === session.id) {
+      // click same chip again → collapse
+      setPreviewSessionId(null);
+      setPreviewSession(null);
+      return;
+    }
+    setPreviewSessionId(session.id);
+    setPreviewLoading(true);
+    setPreviewSession(null);
+    fetch(`/api/coach/sessions/${session.id}`)
+      .then((r) => r.json())
+      .then((data) => { setPreviewSession(data); setPreviewLoading(false); })
+      .catch(() => setPreviewLoading(false));
+  }
 
   if (!selectedClient) {
     return (
@@ -504,11 +555,14 @@ function BrowseClientsView({
         <input type="text" placeholder="Search clients…" value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full rounded border px-2 py-1 text-sm" autoFocus />
-        {filtered.length === 0 && <p className="text-xs text-neutral-400">No other clients found.</p>}
+        {filtered.length === 0 && <p className="text-xs text-neutral-400">No clients found.</p>}
         {filtered.map((c) => (
           <button key={c.id} onClick={() => setSelectedClient(c)}
-            className="w-full text-left rounded border px-3 py-2 text-sm hover:bg-neutral-100">
-            {c.name}
+            className="w-full text-left rounded border px-3 py-2 text-sm hover:bg-neutral-100 flex items-center justify-between gap-2">
+            <span className="truncate">{c.name}</span>
+            {c.id === currentClientId && (
+              <span className="shrink-0 text-[9px] uppercase tracking-wide text-blue-600 font-semibold">this client</span>
+            )}
           </button>
         ))}
       </div>
@@ -518,9 +572,15 @@ function BrowseClientsView({
   return (
     <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <button onClick={() => { setSelectedClient(null); setSessions([]); setCopyStatus(null); }}
+        <button onClick={() => {
+          setSelectedClient(null); setSessions([]); setCopyStatus(null);
+          setPreviewSessionId(null); setPreviewSession(null);
+        }}
           className="text-xs text-neutral-400 hover:text-neutral-700">←</button>
         <p className="text-sm font-medium truncate">{selectedClient.name}</p>
+        {selectedClient.id === currentClientId && (
+          <span className="text-[9px] uppercase tracking-wide text-blue-600 font-semibold shrink-0">this client</span>
+        )}
         {copyStatus && (
           <span className={`text-xs ml-auto shrink-0 ${copyStatus.startsWith("✓") ? "text-green-600" : copyStatus === "Copying…" ? "text-blue-500" : "text-red-500"}`}>
             {copyStatus}
@@ -534,7 +594,73 @@ function BrowseClientsView({
         loading={loading}
         browseClientId={selectedClient.id}
         onDropFromLeft={handleDropFromLeft}
+        onSelectSession={selectSession}
+        selectedSessionId={previewSessionId}
       />
+      {previewSessionId && (
+        <SessionPreviewPanel
+          loading={previewLoading}
+          session={previewSession}
+          onClose={() => { setPreviewSessionId(null); setPreviewSession(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Session Preview Panel (read-only) ────────────────────────────────────────
+// Reference view for a past/other session, shown below the browse calendar so
+// a coach can glance at a client's last session (e.g. previous Push day)
+// while building a different session in the left/center panel. No editing.
+
+function SessionPreviewPanel({
+  loading,
+  session,
+  onClose,
+}: {
+  loading: boolean;
+  session: PreviewSession | null;
+  onClose: () => void;
+}) {
+  return (
+    <div className="border rounded-lg bg-neutral-50">
+      <div className="flex items-center justify-between px-3 py-2 border-b bg-neutral-100 rounded-t-lg">
+        <p className="text-xs font-semibold truncate">
+          {session ? session.dayLabel : "Loading…"}
+          {session?.date && (
+            <span className="ml-2 text-neutral-400 font-normal">
+              {new Date(session.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            </span>
+          )}
+        </p>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700 text-xs px-1">✕</button>
+      </div>
+      <div className="max-h-64 overflow-y-auto p-2 flex flex-col gap-1">
+        {loading && <p className="text-xs text-neutral-400 text-center py-3">Loading…</p>}
+        {!loading && session && session.sessionExercises.length === 0 && (
+          <p className="text-xs text-neutral-400 text-center py-3">No exercises in this session.</p>
+        )}
+        {!loading && session?.sessionExercises
+          .slice()
+          .sort((a, b) => a.order - b.order)
+          .map((se) => {
+            const setsReps = se.reps != null ? `${se.sets ?? "?"}×${se.reps}` : `${se.sets ?? "?"} sets`;
+            const weight = se.loadValue != null ? `${se.loadValue}${se.loadUnit ? se.loadUnit.toLowerCase() : ""}` : null;
+            return (
+              <div
+                key={se.id}
+                className="flex items-center justify-between gap-2 text-xs bg-white rounded px-2 py-1.5"
+                style={se.groupColor ? { borderLeft: `3px solid ${se.groupColor}` } : undefined}
+              >
+                <span className="truncate">{se.exercise.name}</span>
+                <span className="shrink-0 flex items-center gap-1.5 text-neutral-500">
+                  <span className="font-medium text-neutral-700">{setsReps}</span>
+                  {weight && <span>{weight}</span>}
+                </span>
+              </div>
+            );
+          })}
+      </div>
     </div>
   );
 }
@@ -915,5 +1041,6 @@ export function BuilderRightPanel({
     </div>
   );
 }
+
 
 
