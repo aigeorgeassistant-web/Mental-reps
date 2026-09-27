@@ -35,5 +35,24 @@ export default async function BuilderPage({
 
   const exercises = await db.exercise.findMany({ orderBy: { name: "asc" } });
 
-  return <ProgramBuilder client={client} exercises={exercises} />;
+  // Per-coach "most used first" ordering. Counts how many times each
+  // exercise has been placed into a session belonging to one of this
+  // coach's programs. No schema change — derived live from SessionExercise,
+  // scoped via Program.coachId. Exercises never used by this coach keep
+  // their alphabetical order after all used ones.
+  const usage = await db.sessionExercise.groupBy({
+    by: ["exerciseId"],
+    where: { session: { program: { coachId: coach.id } } },
+    _count: { exerciseId: true },
+  });
+  const usageCount = new Map(usage.map((u) => [u.exerciseId, u._count.exerciseId]));
+
+  const sortedExercises = [...exercises].sort((a, b) => {
+    const ua = usageCount.get(a.id) ?? 0;
+    const ub = usageCount.get(b.id) ?? 0;
+    if (ua !== ub) return ub - ua; // higher usage first
+    return a.name.localeCompare(b.name); // stable alphabetical fallback
+  });
+
+  return <ProgramBuilder client={client} exercises={sortedExercises} />;
 }
