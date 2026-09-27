@@ -1378,12 +1378,25 @@ function RowLine({
   onDragWeight: (e: React.DragEvent) => void;
 }) {
   const logged = row.loggedSets ?? [];
+  const outputUnit = row.metric === "CALORIES" ? "cal" : "m";
   const setsRepsLabel = (() => {
+    if (row.metric !== "REPS") {
+      if (!row.reps) return null;
+      if (row.goalId) {
+        // Goal-linked: reps field is reinterpreted as time-in-seconds.
+        const m = Math.floor(row.reps / 60), s = row.reps % 60;
+        return `${m}:${String(s).padStart(2, "0")}`;
+      }
+      // Manual (no goal): reps field is just the plain distance/cal count.
+      return `${row.reps}${outputUnit}`;
+    }
     if (row.sets && row.reps) return `${row.sets}×${row.reps}`;
     if (row.reps) return `${row.reps} reps`;
     return null;
   })();
-  const weightLabel = row.loadValue ? `${row.loadValue}${row.loadUnit ? row.loadUnit.toLowerCase() : ""}` : null;
+  const weightLabel = row.metric !== "REPS" && row.goalId
+    ? (row.loadValue ? `${row.loadValue}${outputUnit}` : null)
+    : (row.loadValue ? `${row.loadValue}${row.loadUnit ? row.loadUnit.toLowerCase() : ""}` : null);
 
   return (
     <div
