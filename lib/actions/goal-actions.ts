@@ -280,8 +280,11 @@ export async function getGoalPrescription(sessionExerciseId: string) {
       output: p.output,
       constantWeight: goal.constantWeight,
       sets: 1,
-      reps: null,
-      weight: null,
+      // Mapped onto the same weight/reps fields the Strength branch uses,
+      // so the logging screens' existing "override the prefill" effect
+      // works unchanged: weight slot = output, reps slot = time(seconds).
+      reps: p.time,
+      weight: p.output,
       anchor: rate,
       liveTrackingSupported: true,
     };
