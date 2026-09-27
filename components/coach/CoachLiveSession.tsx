@@ -112,10 +112,28 @@ function makeRepValues(center: number): number[] {
   return vals;
 }
 
+function makeOutputValues(center: number): number[] {
+  const step = center > 200 ? 10 : 5;
+  const vals: number[] = [];
+  for (let v = Math.max(0, center - step * 20); v <= center + step * 20; v += step) vals.push(v);
+  return vals;
+}
+
+function makeTimeValues(centerSec: number): number[] {
+  const vals: number[] = [];
+  for (let v = Math.max(0, centerSec - 300); v <= centerSec + 300; v += 5) vals.push(v);
+  return vals;
+}
+
+function formatTime(sec: number): string {
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 // ─── Drum picker (verbatim from TodayWorkout.tsx) ──────────────────────────────
 
-function DrumPicker({ values, initial, onConfirm, onClose, label }: {
-  values: number[]; initial: number; onConfirm: (v: number) => void; onClose: () => void; label: string;
+function DrumPicker({ values, initial, onConfirm, onClose, label, format }: {
+  values: number[]; initial: number; onConfirm: (v: number) => void; onClose: () => void; label: string; format?: (v: number) => string;
 }) {
   const ITEM_H = 48;
   const VISIBLE = 5;
@@ -209,7 +227,7 @@ function DrumPicker({ values, initial, onConfirm, onClose, label }: {
                       userSelect: "none",
                     }}
                   >
-                    {v % 1 === 0 ? v : v.toFixed(1)}
+                    {format ? format(v) : (v % 1 === 0 ? v : v.toFixed(1))}
                   </div>
                 );
               })}
@@ -242,6 +260,12 @@ function SetRow({
   onUncheck,
   onCheck,
   onDelete,
+  box1Label,
+  box1Locked,
+  box1Display,
+  box2Label,
+  box2Locked,
+  box2Display,
 }: {
   s: SetState; i: number; unit: Units;
   editMode: boolean;
@@ -249,16 +273,30 @@ function SetRow({
   onUncheck: () => void;
   onCheck: () => void;
   onDelete: () => void;
+  box1Label?: string;
+  box1Locked?: boolean;
+  box1Display?: (v: number) => string;
+  box2Label?: string;
+  box2Locked?: boolean;
+  box2Display?: (v: number) => string;
 }) {
+  const b1Label = box1Label ?? unit.toLowerCase();
+  const b2Label = box2Label ?? "reps";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
       <span style={{ fontSize: 12, color: "var(--dim)", fontFamily: "monospace", width: 18, flexShrink: 0 }}>{i + 1}</span>
-      <button onClick={() => onPicker("weight")} style={{ width: 76, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.weight ? "var(--text)" : "var(--dim)", fontSize: 16, fontWeight: 800, padding: "5px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
-        {s.weight ? (s.weight % 1 === 0 ? s.weight : s.weight.toFixed(1)) : unit.toLowerCase()}
+      <button
+        onClick={() => !box1Locked && onPicker("weight")}
+        style={{ width: 76, background: box1Locked ? "var(--panel)" : "var(--bg)", border: `1px solid ${box1Locked ? "var(--dim)" : "var(--line)"}`, borderRadius: 10, color: s.weight ? "var(--text)" : "var(--dim)", fontSize: 16, fontWeight: 800, padding: "5px 0", textAlign: "center", cursor: box1Locked ? "default" : "pointer", fontFamily: "monospace", flexShrink: 0, opacity: box1Locked ? 0.85 : 1 }}
+      >
+        {s.weight ? (box1Display ? box1Display(s.weight) : (s.weight % 1 === 0 ? s.weight : s.weight.toFixed(1))) : b1Label}
       </button>
       <span style={{ fontSize: 13, color: "var(--dim)", flexShrink: 0 }}>×</span>
-      <button onClick={() => onPicker("reps")} style={{ width: 60, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 10, color: s.reps ? "var(--text)" : "var(--dim)", fontSize: 16, fontWeight: 800, padding: "5px 0", textAlign: "center", cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}>
-        {s.reps || "reps"}
+      <button
+        onClick={() => !box2Locked && onPicker("reps")}
+        style={{ width: 60, background: box2Locked ? "var(--panel)" : "var(--bg)", border: `1px solid ${box2Locked ? "var(--dim)" : "var(--line)"}`, borderRadius: 10, color: s.reps ? "var(--text)" : "var(--dim)", fontSize: 16, fontWeight: 800, padding: "5px 0", textAlign: "center", cursor: box2Locked ? "default" : "pointer", fontFamily: "monospace", flexShrink: 0, opacity: box2Locked ? 0.85 : 1 }}
+      >
+        {s.reps ? (box2Display ? box2Display(s.reps) : s.reps) : b2Label}
       </button>
       <button onClick={() => s.done ? onUncheck() : onCheck()} style={{ width: 32, height: 32, borderRadius: 8, border: s.done ? "none" : "2px solid var(--line)", background: s.done ? "var(--good)" : "transparent", color: s.done ? "#0c1a10" : "var(--line)", fontSize: 18, fontWeight: 900, flexShrink: 0, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>✓</button>
       {editMode && (
@@ -286,6 +324,8 @@ function ExerciseCard({
   const prescribedReps = ex.reps ?? null;
   const prescribedWeight = ex.loadValue ?? null;
   const unit: Units = (ex.loadUnit as Units) ?? defaultUnit;
+  const metric = ex.metric ?? "REPS";
+  const outputUnit = metric === "CALORIES" ? "cal" : "m";
   const name = ex.exercise.name;
 
   const existingLogs = ex.loggedSets;
@@ -304,7 +344,10 @@ function ExerciseCard({
   const [picker, setPicker] = useState<{ setIdx: number; field: "weight" | "reps" } | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
   const gifUrl = ex.exercise.gifUrl;
-  const [goalInfo, setGoalInfo] = useState<{ occurrenceIndex: number; cycleLength: number; blockType: string; sets: number; reps: number | null; weight: number | null } | null>(null);
+  const [goalInfo, setGoalInfo] = useState<{
+    occurrenceIndex: number; cycleLength: number; blockType: string; sets: number; reps: number | null; weight: number | null;
+    goalType?: "STRENGTH" | "ENDURANCE"; fixed?: "time" | "output"; output?: number | null; time?: number | null; constantWeight?: number | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!ex.goalId) return;
@@ -386,6 +429,20 @@ function ExerciseCard({
   const displayReps = goalInfo?.reps ?? prescribedReps;
   const displayWeight = goalInfo?.weight ?? prescribedWeight;
 
+  // Endurance display/lock logic. Under a goal, box1 (weight slot) always
+  // means OUTPUT and box2 (reps slot) always means TIME — which one is
+  // editable flips with the goal's "fixed" side, but the meaning of each
+  // box never does. With no goal, an endurance-metric row just relabels
+  // box2 as a plain distance/calorie count and box1 stays real weight.
+  const isEnduranceGoal = goalInfo?.goalType === "ENDURANCE";
+  const goalFixed = isEnduranceGoal ? goalInfo!.fixed : null;
+  const box1Label = isEnduranceGoal ? outputUnit : unit.toLowerCase();
+  const box1Locked = goalFixed === "output";
+  const box1Display = isEnduranceGoal ? (v: number) => (v % 1 === 0 ? String(v) : v.toFixed(1)) : undefined;
+  const box2Label = isEnduranceGoal ? "time" : metric === "CALORIES" ? "cal" : metric === "DISTANCE" ? "m" : "reps";
+  const box2Locked = goalFixed === "time";
+  const box2Display = isEnduranceGoal ? formatTime : undefined;
+
   return (
     <div style={{ background: "var(--panel)", borderRadius: 14, padding: "14px 14px 10px", border: "1px solid var(--line)" }}>
       {gifOpen && gifUrl && <GifOverlay url={gifUrl} name={name} onClose={() => setGifOpen(false)} />}
@@ -404,12 +461,17 @@ function ExerciseCard({
             </div>
             {prescribedSets && prescribedReps && (
               <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 2 }}>
-                {displaySets}×{displayReps}{displayWeight ? ` @ ${displayWeight}${unit.toLowerCase()}` : ""}
+                {isEnduranceGoal
+                  ? (goalFixed === "time"
+                      ? `${formatTime(displayReps ?? 0)} → ~${displayWeight ?? 0}${outputUnit}`
+                      : `${displayWeight ?? 0}${outputUnit} → ~${formatTime(displayReps ?? 0)}`)
+                  : `${displaySets}×${displayReps}${displayWeight ? ` @ ${displayWeight}${unit.toLowerCase()}` : ""}`}
               </div>
             )}
             {goalInfo && (
               <div style={{ fontSize: 10, color: "var(--blue)", marginTop: 2, fontWeight: 700 }}>
                 Cycle {(goalInfo.occurrenceIndex % goalInfo.cycleLength) + 1}/{goalInfo.cycleLength} · {goalInfo.blockType === "working" ? "Working" : goalInfo.blockType === "deload" ? "Deload" : "Retest"}
+                {isEnduranceGoal && goalInfo.constantWeight ? ` · carry ${goalInfo.constantWeight}kg` : ""}
               </div>
             )}
           </div>
@@ -441,6 +503,12 @@ function ExerciseCard({
             });
           }}
           onDelete={() => doDeleteSet(i)}
+          box1Label={box1Label}
+          box1Locked={box1Locked}
+          box1Display={box1Display}
+          box2Label={box2Label}
+          box2Locked={box2Locked}
+          box2Display={box2Display}
         />
       ))}
 
@@ -453,9 +521,18 @@ function ExerciseCard({
 
       {picker && (
         <DrumPicker
-          label={picker.field === "weight" ? `Weight (${unit.toLowerCase()})` : "Reps"}
-          values={picker.field === "weight" ? makeWeightValues(sets[picker.setIdx].weight || prescribedWeight || 0) : makeRepValues(sets[picker.setIdx].reps || prescribedReps || 1)}
+          label={
+            picker.field === "weight"
+              ? (isEnduranceGoal ? `Output (${outputUnit})` : `Weight (${unit.toLowerCase()})`)
+              : (isEnduranceGoal ? "Time" : metric !== "REPS" ? (metric === "CALORIES" ? "Calories" : "Distance (m)") : "Reps")
+          }
+          values={
+            picker.field === "weight"
+              ? (isEnduranceGoal ? makeOutputValues(sets[picker.setIdx].weight || prescribedWeight || 0) : makeWeightValues(sets[picker.setIdx].weight || prescribedWeight || 0))
+              : (isEnduranceGoal ? makeTimeValues(sets[picker.setIdx].reps || prescribedReps || 0) : metric !== "REPS" ? makeOutputValues(sets[picker.setIdx].reps || prescribedReps || 0) : makeRepValues(sets[picker.setIdx].reps || prescribedReps || 1))
+          }
           initial={picker.field === "weight" ? (sets[picker.setIdx].weight || prescribedWeight || 0) : (sets[picker.setIdx].reps || prescribedReps || 1)}
+          format={picker.field === "reps" && isEnduranceGoal ? formatTime : undefined}
           onConfirm={handlePickerConfirm}
           onClose={() => setPicker(null)}
         />
