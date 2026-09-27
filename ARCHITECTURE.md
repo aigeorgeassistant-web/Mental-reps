@@ -68,6 +68,8 @@ lib/
                   delete path that removes LoggedSets, so ExercisePr never
                   points at a row that no longer exists (deletes the PR row
                   outright if nothing is left to hold one)
+  goalCalc.ts     pure progression math for Strength + Endurance Goals —
+                  see "Progression Goals" below
 
 prisma/
   schema.prisma           the data model — see "Data model" below
@@ -254,6 +256,165 @@ and a hold-to-preview gesture flips into a drag on finger tremor alone
 minimum-movement threshold on the POST-hold transition, not the
 pre-hold one, since the pre-hold check only guards against scrolling).
 
+## Progression Goals — Strength & Endurance autoregulation
+
+Attached to one exercise's recurring slot in a Program (e.g. "Chest Press
+on Push day" across every week of a template, or a client's live copy of
+that once applied). Lets a coach define a progression cycle once and have
+weight/pace suggestions calculate themselves from what the client
+actually logs — never from the plan, since a plan the client didn't hit
+shouldn't compound its own miss.
+
+### The chain
+
+`lib/actions/goal-actions.ts` → `detectGoalChain(sessionExerciseId, dayLabels)`:
+finds every occurrence of the SAME exercise, at the SAME rank within its
+own session (so two occurrences of Chest Press in one day — main lift +
+finisher — are automatically two independent chains, never merged), across
+the given day label(s), ordered chronologically. Restricted to
+occurrences ON OR AFTER the row the coach opened "🎯 Goal" from — a past
+session never gets pulled into a chain that starts today. Ordered by real
+`date` when the program has one (a live client program); templates have
+no dates, so `weekNumber` + day order stands in for chronology there.
+Also flags any OTHER day label containing the same exercise, so the
+builder can prompt "also include Pull day?" rather than assume.
+
+Editing an EXISTING goal always re-anchors to its saved occurrence-0 row,
+never to whichever row the coach happened to reopen it from — otherwise
+reopening a goal from week 3 and re-saving would truncate weeks 1–2 off
+the front of the chain.
+
+### The model — `ExerciseGoal` (prisma/schema.prisma)
+
+One row per chain: `programId`, `exerciseId`, `dayLabels[]`,
+`type` (STRENGTH | ENDURANCE), `blocks` (Json — see below),
+`baselineAnchor` (starting e1RM or starting rate), `constantWeight`
+(Endurance only, optional — see below). `SessionExercise.goalId` +
+`goalOccurrence` (0-indexed position in the chain) link each row in.
+Deleting a `SessionExercise` never touches the goal (no FK the other
+way); deleting the goal (`removeExerciseGoal`) nulls those two fields on
+every linked row via `updateMany` first, then deletes the goal row.
+
+`blocks` is a small JSON array describing ONE cycle — it repeats
+(`occurrenceIndex % blocks.length`) if the chain runs longer than one
+cycle length. Three block types, same for both goal types:
+- **working** — the normal progressing week.
+- **deload** — reduced effort, NEVER updates the anchor (recovery, not a
+  data point).
+- **retest** — one all-out effort that REPLACES the anchor outright,
+  restarting the next cycle from wherever the client's capability
+  actually is now (not a stored "base" that never moves).
+
+### Strength
+
+`blocks: WorkingBlock | DeloadBlock | RetestBlock` (types in
+`lib/goalCalc.ts`). A working block is EITHER a rep-range target (weight
+gets solved for) OR a fixed-weight target (reps are left open) — coach
+picks per block via a Reps/Weight toggle. Either way, whatever gets
+logged runs through Epley (`epley(weight, reps)`) to produce an e1RM,
+which is the single "capacity" number carried forward — exactly the
+existing `ExercisePr` e1RM math, just walked per-occurrence instead of
+all-time-best.
+
+`computeAnchorForOccurrence` walks occurrences 0..target-1: working
+block → anchor = the BEST (highest e1RM) logged set of that occurrence,
+never just the last one logged (a strong opening set must not be erased
+by a weaker finishing set); deload → no update; retest → replaces
+outright. An occurrence with zero logged sets leaves the anchor
+unchanged; a PARTIALLY logged one still counts, using whatever sets
+exist — never blocks on a fully-completed prior occurrence.
+
+`staticPrescription(block, anchor)` is the same math run with no live
+logs — used once, at goal-SAVE time, to write an initial `sets` / `reps`
+/ `loadValue` onto every occurrence in the chain (so a freshly-attached
+goal never leaves a row blank while waiting for data to accumulate).
+
+### Endurance
+
+Reframed, mid-build, from "a separate Distance/Calories unit on the
+goal" to "the row's own `metric` field decides the unit; the goal just
+drives it" — see the Metric section below for why. `blocks:
+EnduranceWorkingBlock | EnduranceDeloadBlock | EnduranceRetestBlock` —
+same three-way shape, but each block also carries `fixed: "time" |
+"output"`: which side the COACH dictates. The other side is what the
+client logs. `rate = output ÷ time(minutes)` is the capacity number here
+— always higher-is-better, no sign-flip the way `lowerIsBetter`
+exercises sometimes need for e1RM.
+
+**Storage convention — reuses `LoggedSet.weight`/`reps` rather than new
+columns**: `weight` = output (distance or calories, whichever the row's
+`metric` is), `reps` = time in whole seconds. This holds regardless of
+which side a block fixes — the FIXED side just gets auto-written by
+`saveExerciseGoal`/`staticPrescription` rather than typed by the client,
+so both fields are always populated and `computeRateForOccurrence` never
+has to guess which one was the real input. Same convention on
+`SessionExercise.reps`/`loadValue` for the STATIC prescription shown
+before anything's logged.
+
+**Constant weight** (`ExerciseGoal.constantWeight`, optional): for
+farmer's-carry-style work where the coach needs to tell the client what
+weight to hold WHILE they log time or distance for the fixed side. Pure
+display — never logged, never progresses, doesn't touch the rate math at
+all. Hidden by default in the Goal editor (a "+ Add a fixed weight" link
+reveals it) since most endurance goals don't need it.
+
+### `SessionExercise.metric` — Reps | Distance | Calories
+
+Lives on the row, independent of whether a Goal is attached at all: a
+coach can mark "this exercise logs Calories" and just manually log
+calories every set, same as Reps today — a Goal, when attached, only
+automates what this already makes possible by hand. Set via a 3-way
+toggle in the builder's Details popup (`SessionEditor.tsx` →
+`DetailsModal`, wired through `lib/actions/exercise-metric-actions.ts` →
+`setExerciseMetric`).
+
+**`CoachExercisePreference`** (coachId + exerciseId → last metric used):
+updated every time a coach explicitly changes a row's metric, read by
+`addExerciseToSession` so adding "Ski Erg" to a new session defaults to
+whatever that coach actually tracks it as, not always Reps. Only this
+one add path currently reads the preference — paste-import, template
+apply, and session-copy weren't audited for it and likely just carry
+over whatever the source row already had.
+
+**In the logging screens** (`CoachLiveSession.tsx` `ExerciseCard`,
+`TodayWorkout.tsx` `ExerciseCard` — kept in parallel, same pattern as the
+DrumPicker/SetRow duplication noted above): the weight-pill and reps-pill
+positions are RELABELED, not restructured, based on `metric` + (if
+goal-linked) `fixed`:
+- No goal, metric=Reps → unchanged: weight pill, reps pill.
+- No goal, metric=Distance/Calories → reps-pill position shows a plain
+  distance/calorie count instead; weight pill stays real weight.
+- Goal-linked (Endurance) → weight-pill position ALWAYS means output,
+  reps-pill position ALWAYS means time — which one is editable flips
+  with `fixed`, but which box means what never does. The locked
+  (non-editable) side renders as static text, no picker opens for it.
+
+Time entry reuses the SAME tap-a-pill-roll-a-value interaction as
+weight, not a new control: `DrumPicker` gained an optional `format`
+prop, and time-mode passes `makeTimeValues` (5-second steps) +
+`formatTime` (mm:ss) instead of the plain-number generator/display.
+
+**Known gap**: `PerformancePage` and the exercise-history charts still
+read raw `weight`/`reps` for graphing — for an endurance-goal exercise
+those are now output/time-seconds, so a history chart for one will plot
+nonsense numbers until that's updated. Not touched yet.
+
+### Files
+
+`lib/goalCalc.ts` — pure, no DB: all the math above (`epley`, `rate`,
+`staticPrescription`, `enduranceStaticPrescription`,
+`computeAnchorForOccurrence`, `computeRateForOccurrence`). Shared by
+`goal-actions.ts` (save-time + live-read) so save-time and read-time math
+can never drift apart into two versions of the same formula.
+`lib/actions/goal-actions.ts` — `detectGoalChain`, `saveExerciseGoal`,
+`getExerciseGoal`, `removeExerciseGoal`, `getGoalPrescription` (the live
+read — walks the chain, returns what a logging screen needs to render:
+`occurrenceIndex`, `cycleLength`, `blockType`, `sets`/`reps`/`weight`,
+and for Endurance also `fixed`/`output`/`time`/`constantWeight`/`metric`).
+`components/coach/GoalEditor.tsx` — the coach-facing editor: chain
+detection preview, day-label include/exclude, Strength/Endurance tabs,
+per-block editing, save/remove.
+
 ## Client-side flow
 
 ```
@@ -348,10 +509,12 @@ Coach ──< Client ──< Program ──< Session ──< SessionExercise ─
   other logic attached to them anywhere else in the app.
 - **Program**: either `isTemplate: true` (reusable) or a live program tied to one `clientId`.
 - **Session**: one training day inside a Program. Has `date`, `weekNumber`, `dayLabel`.
-- **SessionExercise**: one exercise placed in a session — the PRESCRIBED sets/reps/load, set by the coach.
-- **LoggedSet**: what the CLIENT actually did. One row per set. `sessionExerciseId + setIndex` is unique, so logging the same set again overwrites (upsert), it doesn't duplicate. `sessionId` and `sessionExerciseId` are BOTH nullable — a set can technically exist without a live link back to a session row (guard against this in any new query, like the exercise-history route does).
+- **SessionExercise**: one exercise placed in a session — the PRESCRIBED sets/reps/load, set by the coach. `metric` (REPS/DISTANCE/CALORIES) decides what the reps field counts; `goalId`+`goalOccurrence` link it into an ExerciseGoal chain if one's attached — see "Progression Goals".
+- **LoggedSet**: what the CLIENT actually did. One row per set. `sessionExerciseId + setIndex` is unique, so logging the same set again overwrites (upsert), it doesn't duplicate. `sessionId` and `sessionExerciseId` are BOTH nullable — a set can technically exist without a live link back to a session row (guard against this in any new query, like the exercise-history route does). For an Endurance-goal row, `weight`/`reps` here mean output/time-seconds, not weight/reps — see "Progression Goals".
 - **CheckIn**: one optional row per Session — sleep/mood/hydration/stress, 1-5 scale.
 - **Exercise**: shared catalog across all coaches. `muscleGroups`/`equipment` are string arrays used by the taxonomy filter.
+- **ExerciseGoal**: a coach-defined progression cycle attached to one exercise's chain of occurrences within a Program — see "Progression Goals" for the full model.
+- **CoachExercisePreference**: coachId+exerciseId → last `metric` used, one row per pair, read when adding that exercise to a new session.
 - **ClientInvite**, **TemplatePurchase**: exactly what they sound like.
 
 If a bug involves "the data doesn't match what I expect", check the
