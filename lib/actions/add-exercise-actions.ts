@@ -14,11 +14,17 @@ export async function addExerciseToSession(sessionId: string, exerciseId: string
 
   const count = await db.sessionExercise.count({ where: { sessionId } });
 
+  const pref = await db.coachExercisePreference.findUnique({
+    where: { coachId_exerciseId: { coachId: coach.id, exerciseId } },
+    select: { metric: true },
+  });
+
   return db.sessionExercise.create({
     data: {
       sessionId,
       exerciseId,
       order: count,
+      metric: pref?.metric ?? "REPS",
     },
   });
 }
