@@ -29,6 +29,7 @@ import {
 } from "@/lib/actions/group-actions";
 import { setSessionExerciseTarget } from "@/lib/actions/target-actions";
 import { setSessionExerciseDetails } from "@/lib/actions/details-actions";
+import { setExerciseMetric } from "@/lib/actions/exercise-metric-actions";
 import { deleteSessionExercises } from "@/lib/actions/delete-actions";
 import { setSessionDayLabel } from "@/lib/actions/session-label-actions";
 import {
@@ -147,6 +148,7 @@ type DetailsEditState = {
   loadValue: number | "";
   loadUnit: Units;
   coachNote: string;
+  metric: "REPS" | "DISTANCE" | "CALORIES";
   showSets: boolean;
   showReps: boolean;
 };
@@ -635,12 +637,13 @@ export function SessionEditor({
       loadValue: row.loadValue ?? "",
       loadUnit: row.loadUnit ?? "KG",
       coachNote: row.coachNote ?? "",
+      metric: row.metric ?? "REPS",
       showSets: opts?.showSets ?? true,
       showReps: opts?.showReps ?? true,
     });
   }
 
-  function saveDetailsEdit(sets: number | "", repsVal: number | "", loadValue: number | "", loadUnit: Units, coachNote: string) {
+  function saveDetailsEdit(sets: number | "", repsVal: number | "", loadValue: number | "", loadUnit: Units, coachNote: string, metric: "REPS" | "DISTANCE" | "CALORIES") {
     if (!detailsEdit) return;
     const patch = {
       sets: sets === "" ? 0 : sets,
@@ -649,8 +652,11 @@ export function SessionEditor({
       loadUnit,
       coachNote: coachNote.trim() === "" ? null : coachNote,
     };
-    updateRowsLocal([detailsEdit.rowId], (r) => ({ ...r, ...patch }));
+    updateRowsLocal([detailsEdit.rowId], (r) => ({ ...r, ...patch, metric }));
     setSessionExerciseDetails(detailsEdit.rowId, patch).then(afterMutation);
+    if (metric !== detailsEdit.metric) {
+      setExerciseMetric(detailsEdit.rowId, metric).then(afterMutation);
+    }
     setDetailsEdit(null);
   }
 
@@ -1544,13 +1550,15 @@ function DetailsModal({
 }: {
   detailsEdit: DetailsEditState;
   onCancel: () => void;
-  onSave: (sets: number | "", reps: number | "", loadValue: number | "", loadUnit: Units, coachNote: string) => void;
+  onSave: (sets: number | "", reps: number | "", loadValue: number | "", loadUnit: Units, coachNote: string, metric: "REPS" | "DISTANCE" | "CALORIES") => void;
 }) {
   const [sets, setSets] = useState<number | "">(detailsEdit.sets);
   const [reps, setReps] = useState<number | "">(detailsEdit.reps);
   const [loadValue, setLoadValue] = useState<number | "">(detailsEdit.loadValue);
   const [loadUnit, setLoadUnit] = useState<Units>(detailsEdit.loadUnit);
   const [coachNote, setCoachNote] = useState(detailsEdit.coachNote);
+  const [metric, setMetric] = useState<"REPS" | "DISTANCE" | "CALORIES">(detailsEdit.metric);
+  const repsLabel = metric === "REPS" ? "Reps" : metric === "DISTANCE" ? "Distance (m)" : "Calories";
 
   const setsRef = useRef<HTMLInputElement>(null);
   const repsRef = useRef<HTMLInputElement>(null);
@@ -1578,6 +1586,14 @@ function DetailsModal({
       <div className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-72 rounded-lg border bg-white p-4 shadow-lg">
         <p className="text-sm font-medium mb-3">Details</p>
         <div className="flex flex-col gap-2 text-xs">
+          <div className="flex items-center justify-between">
+            <span>Logs</span>
+            <div className="flex border rounded overflow-hidden">
+              <button onClick={() => setMetric("REPS")} className={`px-2 py-1 text-[10px] ${metric === "REPS" ? "bg-neutral-800 text-white" : ""}`}>Reps</button>
+              <button onClick={() => setMetric("DISTANCE")} className={`px-2 py-1 text-[10px] ${metric === "DISTANCE" ? "bg-neutral-800 text-white" : ""}`}>Distance</button>
+              <button onClick={() => setMetric("CALORIES")} className={`px-2 py-1 text-[10px] ${metric === "CALORIES" ? "bg-neutral-800 text-white" : ""}`}>Calories</button>
+            </div>
+          </div>
           {detailsEdit.showSets && (
             <NumField
               label="Sets"
@@ -1590,7 +1606,7 @@ function DetailsModal({
           )}
           {detailsEdit.showReps && (
             <NumField
-              label="Reps"
+              label={repsLabel}
               value={reps}
               onChange={setReps}
               allowEmpty
@@ -1609,7 +1625,7 @@ function DetailsModal({
                 onKeyDown={(e) => {
                   if (e.key !== "Enter") return;
                   e.preventDefault();
-                  onSave(sets, reps, loadValue, loadUnit, coachNote);
+                  onSave(sets, reps, loadValue, loadUnit, coachNote, metric);
                 }}
                 className="w-16 rounded border px-2 py-1"
               />
@@ -1642,7 +1658,7 @@ function DetailsModal({
             Cancel
           </button>
           <button
-            onClick={() => onSave(sets, reps, loadValue, loadUnit, coachNote)}
+            onClick={() => onSave(sets, reps, loadValue, loadUnit, coachNote, metric)}
             className="text-xs px-3 py-1 rounded bg-neutral-800 text-white"
           >
             Save
