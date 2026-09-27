@@ -65,7 +65,10 @@ export function GoalEditor({
   const [otherDayLabels, setOtherDayLabels] = useState<string[]>([]);
   const [occurrenceCount, setOccurrenceCount] = useState(0);
   const [goalType, setGoalType] = useState<"STRENGTH" | "ENDURANCE">("STRENGTH");
-  const [unit, setUnit] = useState<"m" | "cal">("m");
+  const [metric, setMetric] = useState<"DISTANCE" | "CALORIES">("DISTANCE");
+  const unitLabel = metric === "DISTANCE" ? "m" : "cal";
+  const [wantsConstantWeight, setWantsConstantWeight] = useState(false);
+  const [constantWeight, setConstantWeight] = useState<number>(20);
   const [blocks, setBlocks] = useState<EditableBlock[]>([defaultBlock()]);
   const [enduranceBlocks, setEnduranceBlocks] = useState<EditableEnduranceBlock[]>([defaultEnduranceBlock()]);
   const [baselineAnchor, setBaselineAnchor] = useState<number>(0);
@@ -80,7 +83,12 @@ export function GoalEditor({
         setGoalType(existing.type);
         if (existing.type === "ENDURANCE") {
           setEnduranceBlocks(existing.blocks as unknown as EditableEnduranceBlock[]);
-          setUnit((existing.unit as "m" | "cal") ?? "m");
+          const rowMetric = existing.sessionExercises[0]?.metric;
+          if (rowMetric === "CALORIES" || rowMetric === "DISTANCE") setMetric(rowMetric);
+          if (existing.constantWeight != null) {
+            setWantsConstantWeight(true);
+            setConstantWeight(existing.constantWeight);
+          }
         } else {
           setBlocks(existing.blocks as unknown as EditableBlock[]);
         }
@@ -143,7 +151,8 @@ export function GoalEditor({
       sessionExerciseId,
       dayLabels,
       goalType,
-      unit: goalType === "ENDURANCE" ? unit : undefined,
+      metric: goalType === "ENDURANCE" ? metric : undefined,
+      constantWeight: goalType === "ENDURANCE" && wantsConstantWeight ? constantWeight : null,
       blocks: goalType === "ENDURANCE" ? enduranceBlocks : blocks,
       baselineAnchor,
       existingGoalId,
@@ -220,17 +229,27 @@ export function GoalEditor({
 
             {goalType === "ENDURANCE" && (
               <div className="mb-3">
-                <label className="text-xs font-semibold text-neutral-600 block mb-1">Tracking unit</label>
-                <select value={unit} onChange={(e) => setUnit(e.target.value as "m" | "cal")} className="border rounded px-2 py-1 text-sm">
-                  <option value="m">Distance (m)</option>
-                  <option value="cal">Calories</option>
-                </select>
+                <label className="text-xs font-semibold text-neutral-600 block mb-1">This exercise logs</label>
+                <div className="flex border rounded overflow-hidden w-fit">
+                  <button
+                    onClick={() => setMetric("DISTANCE")}
+                    className={`text-xs px-3 py-1.5 ${metric === "DISTANCE" ? "bg-neutral-800 text-white" : "bg-white text-neutral-500"}`}
+                  >
+                    Distance
+                  </button>
+                  <button
+                    onClick={() => setMetric("CALORIES")}
+                    className={`text-xs px-3 py-1.5 ${metric === "CALORIES" ? "bg-neutral-800 text-white" : "bg-white text-neutral-500"}`}
+                  >
+                    Calories
+                  </button>
+                </div>
               </div>
             )}
 
             <div className="mb-3">
               <label className="text-xs font-semibold text-neutral-600 block mb-1">
-                {goalType === "ENDURANCE" ? `Starting rate (${unit}/min)` : "Starting point (e1RM estimate, kg)"}
+                {goalType === "ENDURANCE" ? `Starting rate (${unitLabel}/min)` : "Starting point (e1RM estimate, kg)"}
               </label>
               <input
                 type="number"
@@ -239,6 +258,23 @@ export function GoalEditor({
                 className="w-24 border rounded px-2 py-1 text-sm"
               />
             </div>
+
+            {goalType === "ENDURANCE" && (
+              <div className="mb-3">
+                {!wantsConstantWeight ? (
+                  <button onClick={() => setWantsConstantWeight(true)} className="text-xs text-neutral-500 underline">
+                    + Add a fixed weight (carry/hold — farmer's carry, weighted step-ups)
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-neutral-600">Fixed weight (kg)</label>
+                    <input type="number" value={constantWeight} onChange={(e) => setConstantWeight(Number(e.target.value))} className="w-20 border rounded px-2 py-1 text-sm" />
+                    <button onClick={() => setWantsConstantWeight(false)} className="text-xs text-neutral-400 hover:text-red-600 ml-1">✕ remove</button>
+                    <span className="text-xs text-neutral-400">— shown to client, never logged, doesn't progress</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {goalType === "STRENGTH" && (
             <div className="mb-3">
@@ -344,7 +380,7 @@ export function GoalEditor({
                       onClick={() => updateEBlock(i, { fixed: "output", output: b.output ?? 1000 })}
                       className={`text-xs px-2 py-1 ${b.fixed === "output" ? "bg-neutral-700 text-white" : "bg-white text-neutral-500"}`}
                     >
-                      {unit === "m" ? "Dist" : "Cal"}
+                      {unitLabel === "m" ? "Dist" : "Cal"}
                     </button>
                   </div>
 
@@ -353,7 +389,7 @@ export function GoalEditor({
                   ) : (
                     <>
                       <input type="number" value={b.output ?? 1000} onChange={(e) => updateEBlock(i, { output: Number(e.target.value) })} className="w-16 border rounded px-1 py-1 text-xs" />
-                      <span className="text-xs text-neutral-400">{unit}</span>
+                      <span className="text-xs text-neutral-400">{unitLabel}</span>
                     </>
                   )}
 
