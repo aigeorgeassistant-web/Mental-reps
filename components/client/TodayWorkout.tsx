@@ -764,7 +764,7 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: allDone ? "var(--dim)" : "var(--text)" }}>
               {row.goalId && <span style={{ marginRight: 4 }} title="Progression goal active">🎯</span>}
-              {row.exercise.name}
+              {row.exercise.name}{row.coachNote && <span title="Coach note" style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#e0a030", marginLeft: 6 }} />}
             </div>
             {target && !isEnduranceGoal && <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "monospace", marginTop: 1 }}>{target}</div>}
             {isEnduranceGoal && (
@@ -798,8 +798,8 @@ function ExerciseCard({ row, sessionId, defaultUnit, defaultOpen = true, onAllDo
 
         {open && (
           <div style={{ borderTop: "1px solid var(--line)", padding: "10px 14px" }}>
-            {ytUrl && <button onClick={() => setYtOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#fff", fontWeight: 700, background: "var(--blue)", border: "none", padding: "6px 10px", borderRadius: 8, marginBottom: 8, cursor: "pointer", fontFamily: "inherit" }}>▶ Watch demo</button>}
-            {row.coachNote && <div style={{ fontSize: 12, color: "var(--dim)", background: "rgba(255,255,255,.04)", borderRadius: 8, padding: "7px 10px", marginBottom: 10 }}>📋 {row.coachNote}</div>}
+            {row.coachNote && <div style={{ background: "rgba(224,160,48,.12)", borderLeft: "3px solid #e0a030", padding: "9px 12px", marginBottom: 10 }}><div style={{ fontSize: 11, color: "#e0a030", fontWeight: 700, letterSpacing: ".06em", marginBottom: 3 }}>Coach note</div><div style={{ fontSize: 14, color: "var(--text)", lineHeight: 1.45 }}>{row.coachNote}</div></div>}
+            {ytUrl && <button onClick={() => setYtOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--dim)", fontWeight: 400, background: "transparent", border: "1px solid #3a3f47", padding: "5px 10px", borderRadius: 8, marginBottom: 8, cursor: "pointer", fontFamily: "inherit" }}>▶ Watch demo</button>}
             <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
               {(["KG", "LB"] as Units[]).map((u) => (
                 <button key={u} onClick={() => setUnit(u)} style={{ padding: "3px 10px", borderRadius: 6, border: "1px solid var(--line)", background: unit === u ? "var(--steel)" : "transparent", color: unit === u ? "#fff" : "var(--dim)", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{u}</button>
@@ -860,15 +860,15 @@ function TimedExerciseRow({ row, isFirst, onStartTimer, defaultOpen = true }: {
             {row.exercise.gifUrl ? <ExerciseMedia url={row.exercise.gifUrl} name={row.exercise.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "💪"}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)" }}>{row.exercise.name}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)" }}>{row.exercise.name}{row.coachNote && <span title="Coach note" style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#e0a030", marginLeft: 6 }} />}</div>
             {target && <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "monospace", marginTop: 1 }}>{target}</div>}
           </div>
           <div style={{ color: "var(--dim)", fontSize: 11, transition: "transform .25s", transform: open ? "rotate(180deg)" : "none" }}>▼</div>
         </div>
         {open && (
           <div style={{ borderTop: "1px solid var(--line)", padding: "10px 14px" }}>
-            {ytUrl && <button onClick={() => setYtOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#fff", fontWeight: 700, background: "var(--blue)", border: "none", padding: "6px 10px", borderRadius: 8, marginBottom: 8, cursor: "pointer", fontFamily: "inherit" }}>▶ Watch demo</button>}
-            {row.coachNote && <div style={{ fontSize: 12, color: "var(--dim)", background: "rgba(255,255,255,.04)", borderRadius: 8, padding: "7px 10px", marginBottom: 8 }}>📋 {row.coachNote}</div>}
+            {row.coachNote && <div style={{ background: "rgba(224,160,48,.12)", borderLeft: "3px solid #e0a030", padding: "9px 12px", marginBottom: 10 }}><div style={{ fontSize: 11, color: "#e0a030", fontWeight: 700, letterSpacing: ".06em", marginBottom: 3 }}>Coach note</div><div style={{ fontSize: 14, color: "var(--text)", lineHeight: 1.45 }}>{row.coachNote}</div></div>}
+            {ytUrl && <button onClick={() => setYtOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--dim)", fontWeight: 400, background: "transparent", border: "1px solid #3a3f47", padding: "5px 10px", borderRadius: 8, marginBottom: 8, cursor: "pointer", fontFamily: "inherit" }}>▶ Watch demo</button>}
             {row.exercise.cues && <div style={{ fontSize: 12, color: "var(--dim)", marginBottom: 8, lineHeight: 1.5 }}>{row.exercise.cues}</div>}
             {isFirst && onStartTimer && (
               <button onClick={onStartTimer} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "#fff", background: "var(--accent)", border: "none", borderRadius: 8, padding: "9px 16px", cursor: "pointer", fontFamily: "inherit" }}>▶ Start Timer</button>
