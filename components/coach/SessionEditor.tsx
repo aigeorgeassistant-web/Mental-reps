@@ -218,6 +218,7 @@ export function SessionEditor({
         order: maxOrder + 1,
         sets: null,
         reps: null,
+        repsMax: null,
         setType: "FIXED_REPS",
         loadType: "FIXED",
         loadValue: null,
@@ -396,6 +397,7 @@ export function SessionEditor({
       const patch = {
         sets: src.sets ?? 0,
         reps: src.reps ?? 0,
+        repsMax: src.repsMax ?? null,
         loadValue: tgt.loadValue ?? 0,
         loadUnit: tgt.loadUnit ?? "KG",
         coachNote: tgt.coachNote ?? null,
@@ -406,6 +408,7 @@ export function SessionEditor({
       const patch = {
         sets: tgt.sets ?? 0,
         reps: tgt.reps ?? 0,
+        repsMax: tgt.repsMax ?? null,
         loadValue: src.loadValue ?? 0,
         loadUnit: src.loadUnit ?? "KG",
         coachNote: tgt.coachNote ?? null,
