@@ -54,13 +54,18 @@ function buildBlocks(rows: Row[]): Block[] {
   return blocks;
 }
 
+function repsStr(row: { reps: number | null; repsMax?: number | null }): string {
+  if (row.reps == null) return "";
+  return row.repsMax != null ? `${row.reps}-${row.repsMax}` : `${row.reps}`;
+}
+
 function formatTarget(row: Row): string {
   const p = parseIntervalTarget(row.target);
   if (p.kind === "interval") return p.rounds ? `${p.workSec}/${p.restSec}×${p.rounds}` : `${p.workSec}/${p.restSec}`;
   if (p.kind === "emom") return p.reps ? `EMOM ${p.roundSec}s ×${p.reps}` : `EMOM ${p.roundSec}s`;
   const parts: string[] = [];
-  if (row.sets && row.reps) parts.push(`${row.sets}×${row.reps}`);
-  else if (row.reps) parts.push(`${row.reps} reps`);
+  if (row.sets && row.reps) parts.push(`${row.sets}×${repsStr(row)}`);
+  else if (row.reps) parts.push(`${repsStr(row)} reps`);
   if (row.loadValue) parts.push(`${row.loadValue}${row.loadUnit?.toLowerCase() ?? ""}`);
   return parts.join("  ") || "";
 }
@@ -907,7 +912,7 @@ function GroupCard({ label, color, children, openKey, activeKey, onToggle, previ
                 </div>
                 <span style={{ flex: 1, fontSize: 12, color: "var(--dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.exercise.name}</span>
                 <span style={{ fontSize: 11, color: "var(--dim)", fontFamily: "monospace", flexShrink: 0 }}>
-                  {r.sets && r.reps ? `${r.sets}×${r.reps}` : r.reps ? `×${r.reps}` : ""}
+                  {r.sets && r.reps ? `${r.sets}×${repsStr(r)}` : r.reps ? `×${repsStr(r)}` : ""}
                 </span>
               </div>
             ))}
