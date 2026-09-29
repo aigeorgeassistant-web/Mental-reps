@@ -74,6 +74,7 @@ export async function copySessionToClient(
           order: se.order,
           sets: se.sets,
           reps: se.reps,
+          repsMax: se.repsMax,
           setType: se.setType,
           loadType: se.loadType,
           loadValue: se.loadValue,
