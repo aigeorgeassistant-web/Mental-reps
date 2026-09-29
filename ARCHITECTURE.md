@@ -114,6 +114,9 @@ components/coach/ProgramBuilder.tsx        (the orchestrator — no visible UI i
   │    - Week: same sessions grouped by weekNumber. Also hosts the
   │      Template Builder (a separate mode, toggled by "+ Build Template").
   │    - Exercises: search + taxonomy filter (muscle/equipment) + add-new.
+    List is sorted by this coach's usage count (desc) then name — computed
+    live in `builder/page.tsx` via `sessionExercise.groupBy`, nothing
+    stored. Same sorted array feeds PasteImportModal and ExerciseDrawer.
   │    - Header: ⓘ button → `ClientProfileModal` (email/phone/health-
   │      mobility notes/general notes/equipment/birthday, editable via
   │      PATCH `api/coach/clients/[clientId]`). Pink banner appears next
@@ -124,6 +127,12 @@ components/coach/ProgramBuilder.tsx        (the orchestrator — no visible UI i
   │    One row per exercise in the session. Row layout, left to right:
   │      [drag handle] [exercise name] [logged-set chips, if any]
   │        [sets×reps pill] [weight pill] [⋯ menu]
+      Reps can be a range: the Details popup's reps field is a plain text
+      input — "10" stays a single number, "8-12" parses into
+      `reps`/`repsMax` (helpers `parseReps`/`formatReps`/`repsStr` at top
+      of `SessionEditor.tsx`, mirrored in `TodayWorkout.tsx`). No UI
+      toggle — same field, same tab order either way. Paste-import
+      (`PasteImportModal.tsx`) parses "8-12" and "3x8-12" too.
   │    - Logged-set chips: green pills showing what the CLIENT actually
   │      logged (e.g. "80kg×8"). Only appear if the session object passed
   │      in has `loggedSets` populated on its sessionExercises — this is
@@ -142,6 +151,11 @@ components/coach/ProgramBuilder.tsx        (the orchestrator — no visible UI i
          this exercise in, fetched from
          GET /api/coach/clients/[clientId]/exercise-history/[exerciseId]
        - Clients: browse another client's calendar, drag sessions across.
+         Current client is included too (pinned top, "this client"), not
+         just other clients. Click a session chip → read-only
+         `SessionPreviewPanel` below the calendar (name, sets×reps,
+         weight, group colour) via GET `api/coach/sessions/[sessionId]`;
+         click again or ✕ to close.
        - Templates: list of saved templates, "Add to [client]" button.
 ```
 
@@ -421,6 +435,9 @@ per-block editing, save/remove.
 app/client/today/page.tsx → components/client/TodayWorkout.tsx
   Today's session. ExerciseCard per exercise, DrumPicker for weight/reps.
   Confirming reps = the log trigger → POST /api/client/log-set
+  Coach note renders as an amber card (was low-contrast grey text) with
+  a small amber dot on the collapsed card when a note exists. "Watch
+  demo" is an outlined grey button (was solid blue) below the note.
   Check-in overlay (sleep/mood/hydration/stress) → POST /api/client/checkin
   `···` menu (top-right): Exercise History overlay | Programs | Rest Timer
     ON/OFF | Sign Out.
@@ -509,7 +526,7 @@ Coach ──< Client ──< Program ──< Session ──< SessionExercise ─
   other logic attached to them anywhere else in the app.
 - **Program**: either `isTemplate: true` (reusable) or a live program tied to one `clientId`.
 - **Session**: one training day inside a Program. Has `date`, `weekNumber`, `dayLabel`.
-- **SessionExercise**: one exercise placed in a session — the PRESCRIBED sets/reps/load, set by the coach. `metric` (REPS/DISTANCE/CALORIES) decides what the reps field counts; `goalId`+`goalOccurrence` link it into an ExerciseGoal chain if one's attached — see "Progression Goals".
+- **SessionExercise**: one exercise placed in a session — the PRESCRIBED sets/reps/load, set by the coach. `reps` is the number (or the low end of a range); `repsMax` (nullable) is the high end when the coach prescribed a range — null means fixed reps, unchanged behavior. `metric` (REPS/DISTANCE/CALORIES) decides what the reps field counts; `goalId`+`goalOccurrence` link it into an ExerciseGoal chain if one's attached — see "Progression Goals". Every place that duplicates a row (`copy-session-action.ts`, `apply-template-action.ts`, `apply-single`/`apply` client routes, paste-import's `add-exercise` route) must carry `repsMax` along or it silently drops on copy.
 - **LoggedSet**: what the CLIENT actually did. One row per set. `sessionExerciseId + setIndex` is unique, so logging the same set again overwrites (upsert), it doesn't duplicate. `sessionId` and `sessionExerciseId` are BOTH nullable — a set can technically exist without a live link back to a session row (guard against this in any new query, like the exercise-history route does). For an Endurance-goal row, `weight`/`reps` here mean output/time-seconds, not weight/reps — see "Progression Goals".
 - **CheckIn**: one optional row per Session — sleep/mood/hydration/stress, 1-5 scale.
 - **Exercise**: shared catalog across all coaches. `muscleGroups`/`equipment` are string arrays used by the taxonomy filter.
