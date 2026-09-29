@@ -44,6 +44,28 @@ import { GoalEditor } from "@/components/coach/GoalEditor";
 type LoggedSetData = { setIndex: number; weight: number | null; reps: number | null; notes: string | null };
 type CheckInData = { sleep: number | null; mood: number | null; hydration: number | null; stress: number | null };
 type Row = SessionExercise & { exercise: Exercise; loggedSets?: LoggedSetData[] };
+
+function repsStr(row: { reps: number | null; repsMax: number | null }): string {
+  if (row.reps == null) return "";
+  return row.repsMax != null ? `${row.reps}-${row.repsMax}` : `${row.reps}`;
+}
+
+function formatReps(reps: number | null | undefined, repsMax: number | null | undefined): string {
+  if (reps == null) return "";
+  return repsMax != null ? `${reps}-${repsMax}` : `${reps}`;
+}
+
+function parseReps(input: string): { reps: number | null; repsMax: number | null } {
+  const s = input.trim();
+  if (s === "") return { reps: null, repsMax: null };
+  const m = s.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (m) {
+    const a = Number(m[1]), b = Number(m[2]);
+    return a <= b ? { reps: a, repsMax: b } : { reps: b, repsMax: a };
+  }
+  const n = Number(s);
+  return { reps: Number.isFinite(n) && s !== "" ? n : null, repsMax: null };
+}
 type OptimisticRow = Row & { _optimistic: true };
 type SessionWithExercises = Session & { sessionExercises: Row[]; checkIn?: CheckInData | null };
 
@@ -127,8 +149,8 @@ function buildBlocks(rows: Row[]): Block[] {
 
 function detailsSummary(row: Row): string | null {
   const parts: string[] = [];
-  if (row.sets && row.reps) parts.push(`${row.sets}×${row.reps}`);
-  else if (row.reps) parts.push(`${row.reps} reps`);
+  if (row.sets && row.reps) parts.push(`${row.sets}×${repsStr(row)}`);
+  else if (row.reps) parts.push(`${repsStr(row)} reps`);
   if (row.loadValue) parts.push(`${row.loadValue}${row.loadUnit ? row.loadUnit.toLowerCase() : ""}`);
   return parts.length ? parts.join(" · ") : null;
 }
@@ -144,7 +166,7 @@ type HeaderEditState =
 type DetailsEditState = {
   rowId: string;
   sets: number | "";
-  reps: number | "";
+  reps: string;
   loadValue: number | "";
   loadUnit: Units;
   coachNote: string;
@@ -634,7 +656,7 @@ export function SessionEditor({
     setDetailsEdit({
       rowId: row.id,
       sets: row.sets ?? "",
-      reps: row.reps ?? "",
+      reps: formatReps(row.reps, row.repsMax),
       loadValue: row.loadValue ?? "",
       loadUnit: row.loadUnit ?? "KG",
       coachNote: row.coachNote ?? "",
@@ -644,11 +666,13 @@ export function SessionEditor({
     });
   }
 
-  function saveDetailsEdit(sets: number | "", repsVal: number | "", loadValue: number | "", loadUnit: Units, coachNote: string, metric: "REPS" | "DISTANCE" | "CALORIES") {
+  function saveDetailsEdit(sets: number | "", repsInput: string, loadValue: number | "", loadUnit: Units, coachNote: string, metric: "REPS" | "DISTANCE" | "CALORIES") {
     if (!detailsEdit) return;
+    const { reps, repsMax } = parseReps(repsInput);
     const patch = {
       sets: sets === "" ? 0 : sets,
-      reps: repsVal === "" ? 0 : repsVal,
+      reps: reps ?? 0,
+      repsMax,
       loadValue: loadValue === "" ? 0 : loadValue,
       loadUnit,
       coachNote: coachNote.trim() === "" ? null : coachNote,
@@ -862,8 +886,8 @@ export function SessionEditor({
                     const dLabel = detailsSummary(row);
 
                     const setsRepsLabelTimed = (() => {
-                      if (row.sets && row.reps) return `${row.sets}×${row.reps}`;
-                      if (row.reps) return `${row.reps} reps`;
+                      if (row.sets && row.reps) return `${row.sets}×${repsStr(row)}`;
+                      if (row.reps) return `${repsStr(row)} reps`;
                       return null;
                     })();
                     const weightLabelTimed = row.loadValue ? `${row.loadValue}${row.loadUnit ? row.loadUnit.toLowerCase() : ""}` : null;
@@ -1391,8 +1415,8 @@ function RowLine({
       // Manual (no goal): reps field is just the plain distance/cal count.
       return `${row.reps}${outputUnit}`;
     }
-    if (row.sets && row.reps) return `${row.sets}×${row.reps}`;
-    if (row.reps) return `${row.reps} reps`;
+    if (row.sets && row.reps) return `${row.sets}×${repsStr(row)}`;
+    if (row.reps) return `${repsStr(row)} reps`;
     return null;
   })();
   const weightLabel = row.metric !== "REPS" && row.goalId
@@ -1564,10 +1588,10 @@ function DetailsModal({
 }: {
   detailsEdit: DetailsEditState;
   onCancel: () => void;
-  onSave: (sets: number | "", reps: number | "", loadValue: number | "", loadUnit: Units, coachNote: string, metric: "REPS" | "DISTANCE" | "CALORIES") => void;
+  onSave: (sets: number | "", reps: string, loadValue: number | "", loadUnit: Units, coachNote: string, metric: "REPS" | "DISTANCE" | "CALORIES") => void;
 }) {
   const [sets, setSets] = useState<number | "">(detailsEdit.sets);
-  const [reps, setReps] = useState<number | "">(detailsEdit.reps);
+  const [reps, setReps] = useState<string>(detailsEdit.reps);
   const [loadValue, setLoadValue] = useState<number | "">(detailsEdit.loadValue);
   const [loadUnit, setLoadUnit] = useState<Units>(detailsEdit.loadUnit);
   const [coachNote, setCoachNote] = useState(detailsEdit.coachNote);
@@ -1619,14 +1643,19 @@ function DetailsModal({
             />
           )}
           {detailsEdit.showReps && (
-            <NumField
-              label={repsLabel}
-              value={reps}
-              onChange={setReps}
-              allowEmpty
-              inputRef={repsRef}
-              onKeyDown={(e) => goNext(e, weightRef)}
-            />
+            <label className="flex justify-between items-center">
+              {repsLabel}
+              <input
+                ref={repsRef}
+                type="text"
+                inputMode="text"
+                placeholder={metric === "REPS" ? "10 or 8-12" : undefined}
+                value={reps}
+                onChange={(e) => setReps(e.target.value)}
+                onKeyDown={(e) => goNext(e, weightRef)}
+                className="w-20 rounded border px-2 py-1"
+              />
+            </label>
           )}
           <div className="flex justify-between items-center">
             <span>Weight</span>
