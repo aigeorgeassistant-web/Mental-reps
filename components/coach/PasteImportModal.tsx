@@ -14,6 +14,7 @@ type ParsedRow = {
   name: string;
   sets: number | null;
   reps: number | null;
+  repsMax: number | null;
   loadValue: number | null;
   loadUnit: "KG" | "LB";
 };
@@ -22,12 +23,17 @@ type ResolvedRow = ParsedRow & { exerciseId: string };
 
 // ─── Parsers ──────────────────────────────────────────────────────────────────
 
-function parseSetsReps(raw: string): { sets: number | null; reps: number | null } {
-  const m = raw.trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/);
-  if (m) return { sets: Number(m[1]), reps: Number(m[2]) };
-  const single = raw.trim().match(/^(\d+)$/);
-  if (single) return { sets: null, reps: Number(single[1]) };
-  return { sets: null, reps: null };
+function parseSetsReps(raw: string): { sets: number | null; reps: number | null; repsMax: number | null } {
+  const s = raw.trim();
+  let m = s.match(/^(\d+)\s*[xX×]\s*(\d+)\s*-\s*(\d+)$/); // 3x8-12
+  if (m) return { sets: Number(m[1]), reps: Number(m[2]), repsMax: Number(m[3]) };
+  m = s.match(/^(\d+)\s*[xX×]\s*(\d+)$/); // 3x10
+  if (m) return { sets: Number(m[1]), reps: Number(m[2]), repsMax: null };
+  m = s.match(/^(\d+)\s*-\s*(\d+)$/); // 8-12
+  if (m) return { sets: null, reps: Number(m[1]), repsMax: Number(m[2]) };
+  const single = s.match(/^(\d+)$/);
+  if (single) return { sets: null, reps: Number(single[1]), repsMax: null };
+  return { sets: null, reps: null, repsMax: null };
 }
 
 function parseWeight(raw: string): { loadValue: number | null; loadUnit: "KG" | "LB" } {
@@ -50,9 +56,9 @@ function parseText(text: string): ParsedRow[] {
         ? line.split("\t")
         : line.split(/\s{2,}|,/);
       const name = (cols[0] ?? "").trim();
-      const { sets, reps } = parseSetsReps((cols[1] ?? "").trim());
+      const { sets, reps, repsMax } = parseSetsReps((cols[1] ?? "").trim());
       const { loadValue, loadUnit } = parseWeight((cols[2] ?? "").trim());
-      return { raw: line, name, sets, reps, loadValue, loadUnit };
+      return { raw: line, name, sets, reps, repsMax, loadValue, loadUnit };
     })
     .filter((r) => r.name.length > 0);
 }
@@ -244,6 +250,7 @@ export function PasteImportModal({
           order: order++,
           sets: row.sets,
           reps: row.reps,
+          repsMax: row.repsMax,
           loadValue: row.loadValue,
           loadUnit: row.loadUnit,
         }),
@@ -336,7 +343,7 @@ export function PasteImportModal({
                 <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px", gap: "4px 8px", background: "#f9fafb", borderRadius: 6, padding: "6px 10px", alignItems: "center" }}>
                   <span style={{ fontSize: 12, fontWeight: 500, color: "#1a1a1a" }}>{r.name}</span>
                   <span style={{ fontSize: 12, color: r.sets || r.reps ? "#1a1a1a" : "#d1d5db", fontFamily: "monospace" }}>
-                    {r.sets && r.reps ? `${r.sets}×${r.reps}` : r.reps ? `${r.reps}` : "—"}
+                    {r.sets && r.reps ? `${r.sets}×${r.reps}${r.repsMax ? `-${r.repsMax}` : ""}` : r.reps ? `${r.reps}${r.repsMax ? `-${r.repsMax}` : ""}` : "—"}
                   </span>
                   <span style={{ fontSize: 12, color: r.loadValue ? "#1a1a1a" : "#d1d5db", fontFamily: "monospace" }}>
                     {r.loadValue ? `${r.loadValue}${r.loadUnit === "LB" ? "lb" : "kg"}` : "—"}
@@ -363,7 +370,7 @@ export function PasteImportModal({
             <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: "#1a1a1a", marginBottom: 3 }}>"{currentRow.name}"</div>
               <div style={{ fontSize: 11, color: "#888" }}>
-                {currentRow.sets && currentRow.reps ? `${currentRow.sets}×${currentRow.reps}` : currentRow.reps ? `${currentRow.reps} reps` : "no sets/reps"}
+                {currentRow.sets && currentRow.reps ? `${currentRow.sets}×${currentRow.reps}${currentRow.repsMax ? `-${currentRow.repsMax}` : ""}` : currentRow.reps ? `${currentRow.reps}${currentRow.repsMax ? `-${currentRow.repsMax}` : ""} reps` : "no sets/reps"}
                 {currentRow.loadValue ? ` · ${currentRow.loadValue}${currentRow.loadUnit === "LB" ? "lb" : "kg"}` : ""}
               </div>
             </div>
