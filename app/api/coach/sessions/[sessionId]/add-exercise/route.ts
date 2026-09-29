@@ -15,7 +15,7 @@ export async function POST(
 
   const { sessionId } = await params;
   const body = await req.json();
-  const { exerciseId, order, sets, reps, loadValue, loadUnit } = body;
+  const { exerciseId, order, sets, reps, repsMax, loadValue, loadUnit } = body;
 
   if (!exerciseId) return NextResponse.json({ error: "exerciseId required" }, { status: 400 });
 
@@ -29,6 +29,7 @@ export async function POST(
       order: order ?? count,
       sets: sets ?? null,
       reps: reps ?? null,
+      repsMax: repsMax ?? null,
       loadValue: loadValue ?? null,
       loadUnit: loadUnit ?? null,
     },
