@@ -11,6 +11,7 @@ export async function setSessionExerciseDetails(
   details: {
     sets: number | null;
     reps: number | null;
+    repsMax: number | null;
     loadValue: number | null;
     loadUnit: Units | null;
     coachNote: string | null;
