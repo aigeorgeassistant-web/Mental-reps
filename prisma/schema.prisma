@@ -180,6 +180,7 @@ model SessionExercise {
 
   sets      Int?
   reps      Int?
+  repsMax   Int?     // set when the coach prescribes a rep range (reps = low end)
   setType   SetType  @default(FIXED_REPS)
   loadType  LoadType @default(FIXED)
   loadValue Float?
