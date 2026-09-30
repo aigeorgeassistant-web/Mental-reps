@@ -15,7 +15,7 @@ import {
   type TemplateSessionRow,
 } from "@/lib/actions/template-actions";
 import { ClientProfileModal } from "./ClientProfileModal";
-import { DayConflictModal } from "./DayConflictModal";
+import { DayPickBanner } from "./DayPickBanner";
 import type { DayConflict, Relocation } from "@/lib/session-day";
 
 type ClientWithPrograms = Client & {
@@ -93,6 +93,7 @@ export function BuilderLeftPanel({
     sessionId: string;
     targetDateKey: string;
     occupied: DayConflict[];
+    picked: Relocation[];
     error: string | null;
   } | null>(null);
   const [conflictBusy, setConflictBusy] = useState(false);
@@ -161,8 +162,8 @@ export function BuilderLeftPanel({
   }
 
   // Runs a move or copy onto `targetDateKey`. If that day already has a
-  // session the server answers DAY_OCCUPIED and we open the conflict modal
-  // (the coach must pick a new day for the existing session).
+  // session the server answers DAY_OCCUPIED and the month calendar switches to
+  // pick mode (the coach clicks a new day for the existing session).
   async function runDropAction(
     kind: "move" | "copy",
     sessionId: string,
@@ -184,12 +185,12 @@ export function BuilderLeftPanel({
     }
     if (result.code === "DAY_OCCUPIED") {
       setDropStatus(null);
-      setConflict({ kind, sessionId, targetDateKey, occupied: result.occupied ?? [], error: null });
+      setConflict({ kind, sessionId, targetDateKey, occupied: result.occupied ?? [], picked: [], error: null });
       return;
     }
     if (result.code === "RELOCATE_INVALID") {
       setDropStatus(null);
-      setConflict((c) => (c ? { ...c, error: result.error ?? "Invalid date" } : c));
+      setConflict((c) => (c ? { ...c, picked: [], error: result.error ?? "Invalid date" } : c));
       return;
     }
     setDropStatus(`Error: ${result.error}`);
@@ -219,6 +220,32 @@ export function BuilderLeftPanel({
     const { sessionId, targetDateKey } = pendingDrop;
     setPendingDrop(null);
     await runDropAction("copy", sessionId, targetDateKey);
+  }
+
+  // Pick mode: a day can't be chosen if it is the drop target, already picked,
+  // or holds another session (the moving session's own day is freed by a move).
+  function pickBlocked(key: string): boolean {
+    if (!conflict) return true;
+    if (key === conflict.targetDateKey) return true;
+    if (conflict.picked.some((p) => p.dateKey === key)) return true;
+    const others = (sessionsByDateKey.get(key) ?? []).filter(
+      (s) => !(conflict.kind === "move" && s.id === conflict.sessionId)
+    );
+    return others.length > 0;
+  }
+
+  async function handlePickDay(key: string) {
+    if (!conflict || conflictBusy || pickBlocked(key)) return;
+    const current = conflict.occupied[conflict.picked.length];
+    if (!current) return;
+    const picked = [...conflict.picked, { sessionId: current.id, dateKey: key }];
+    if (picked.length < conflict.occupied.length) {
+      setConflict({ ...conflict, picked, error: null });
+      return;
+    }
+    setConflictBusy(true);
+    await runDropAction(conflict.kind, conflict.sessionId, conflict.targetDateKey, picked);
+    setConflictBusy(false);
   }
 
   function handleChipClick(sessionId: string) {
@@ -323,6 +350,18 @@ export function BuilderLeftPanel({
 
       <div className="flex-1 overflow-y-auto p-4">
 
+        {tab === "month" && conflict && conflict.occupied[conflict.picked.length] && (
+          <DayPickBanner
+            mode={conflict.kind}
+            targetDateKey={conflict.targetDateKey}
+            label={conflict.occupied[conflict.picked.length].dayLabel}
+            step={conflict.picked.length + 1}
+            total={conflict.occupied.length}
+            error={conflict.error}
+            busy={conflictBusy}
+            onCancel={() => setConflict(null)}
+          />
+        )}
         {tab === "month" && (
           <MonthCalendar
             monthCursor={monthCursor}
@@ -339,6 +378,9 @@ export function BuilderLeftPanel({
             onToggleDeleteMode={() => { if (deleteMode) exitDeleteMode(); else setDeleteMode(true); }}
             onDeleteSelected={handleDeleteSelected}
             deleting={deleting}
+            pickMode={!!conflict}
+            pickBlocked={pickBlocked}
+            onPickDay={handlePickDay}
           />
         )}
 
@@ -533,21 +575,6 @@ export function BuilderLeftPanel({
         </div>
       </div>
     )}
-    {conflict && (
-      <DayConflictModal
-        mode={conflict.kind}
-        targetDateKey={conflict.targetDateKey}
-        occupied={conflict.occupied}
-        busy={conflictBusy}
-        error={conflict.error}
-        onCancel={() => setConflict(null)}
-        onConfirm={async (relocs) => {
-          setConflictBusy(true);
-          await runDropAction(conflict.kind, conflict.sessionId, conflict.targetDateKey, relocs);
-          setConflictBusy(false);
-        }}
-      />
-    )}
     {showProfileModal && (
       <ClientProfileModal
         client={{
@@ -655,13 +682,14 @@ function EmptyState({ text }: { text: string }) {
 }
 
 function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, loggedDateKeys, currentClientId,
-  onDayClick, onChipClick, onDropSession, disabled, deleteMode, selectedIds, onToggleDeleteMode, onDeleteSelected, deleting }: {
+  onDayClick, onChipClick, onDropSession, disabled, deleteMode, selectedIds, onToggleDeleteMode, onDeleteSelected, deleting, pickMode, pickBlocked, onPickDay }: {
   monthCursor: Date; setMonthCursor: (d: Date) => void; sessionsByDateKey: Map<string, Session[]>;
   loggedDateKeys: Set<string>;
   currentClientId: string; onDayClick: (dateKey: string) => void; onChipClick: (sessionId: string) => void;
   onDropSession: (sessionId: string, sourceClientId: string, targetDateKey: string) => void;
   disabled: boolean; deleteMode: boolean; selectedIds: string[];
   onToggleDeleteMode: () => void; onDeleteSelected: () => void; deleting: boolean;
+  pickMode: boolean; pickBlocked: (key: string) => boolean; onPickDay: (key: string) => void;
 }) {
   const [dragOver, setDragOver] = useState<string | null>(null);
   const days = useMemo(() => buildMonthGrid(monthCursor), [monthCursor]);
@@ -670,7 +698,7 @@ function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, loggedD
   function handleDrop(e: React.DragEvent, key: string) {
     e.preventDefault();
     setDragOver(null);
-    if (deleteMode) return;
+    if (deleteMode || pickMode) return;
     try {
       const data = JSON.parse(e.dataTransfer.getData("text/plain"));
       const { sessionId, sourceClientId } = data;
@@ -710,19 +738,20 @@ function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, loggedD
           const isOver = dragOver === key;
           return (
             <div key={key}
-              className={`aspect-square rounded border text-[11px] p-1 flex flex-col transition-colors ${inMonth ? "" : "opacity-30"} ${isOver ? "border-blue-400 bg-blue-50" : ""}`}
-              onDragOver={(e) => { e.preventDefault(); if (!deleteMode) setDragOver(key); }}
+              className={`aspect-square rounded border text-[11px] p-1 flex flex-col transition-colors ${inMonth ? "" : "opacity-30"} ${isOver ? "border-blue-400 bg-blue-50" : ""} ${pickMode ? (pickBlocked(key) ? "opacity-40 cursor-not-allowed" : "cursor-pointer ring-2 ring-amber-400 hover:bg-amber-50") : ""}`}
+              onClick={pickMode && !pickBlocked(key) ? () => onPickDay(key) : undefined}
+              onDragOver={(e) => { e.preventDefault(); if (!deleteMode && !pickMode) setDragOver(key); }}
               onDragLeave={() => setDragOver(null)}
               onDrop={(e) => handleDrop(e, key)}>
               <span className="text-neutral-500">{date.getDate()}</span>
               {daySessions.length > 0 ? (
-                <div draggable={!deleteMode}
+                <div draggable={!deleteMode && !pickMode}
                   onDragStart={(e) => {
                     if (deleteMode) return;
                     e.dataTransfer.setData("text/plain", JSON.stringify({ sessionId: daySessions[0].id, sourceClientId: currentClientId }));
                   }}
                   className="mt-auto">
-                  <button onClick={() => onChipClick(daySessions[0].id)}
+                  <button onClick={() => { if (!pickMode) onChipClick(daySessions[0].id); }}
                     className={`w-full truncate rounded px-1 py-0.5 text-left text-[10px] transition-colors ${
                       deleteMode
                         ? selectedIds.includes(daySessions[0].id)
@@ -742,7 +771,7 @@ function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, loggedD
                   )}
                 </div>
               ) : (
-                <button onClick={() => onDayClick(key)} disabled={disabled || deleteMode}
+                <button onClick={() => { if (!pickMode) onDayClick(key); }} disabled={(disabled || deleteMode) && !pickMode}
                   className="mt-auto text-neutral-300 hover:text-neutral-600 disabled:opacity-50">
                   +
                 </button>

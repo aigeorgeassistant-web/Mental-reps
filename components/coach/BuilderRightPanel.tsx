@@ -12,7 +12,7 @@ import { TaxonomyPicker } from "@/components/coach/TaxonomyPicker";
 import { MUSCLE_TAXONOMY, EQUIPMENT_TAXONOMY } from "@/lib/taxonomy";
 import { AddExerciseForm } from "@/components/coach/AddExerciseForm";
 import { copySessionToClient } from "@/lib/actions/copy-session-action";
-import { DayConflictModal } from "@/components/coach/DayConflictModal";
+import { DayPickBanner } from "@/components/coach/DayPickBanner";
 import type { DayConflict, Relocation } from "@/lib/session-day";
 import {
   previewTemplateApplication,
@@ -370,7 +370,13 @@ function BrowseCalendar({
   onDropFromLeft,
   onSelectSession,
   selectedSessionId,
+  pickMode,
+  pickBlocked,
+  onPickDay,
 }: {
+  pickMode: boolean;
+  pickBlocked: (key: string) => boolean;
+  onPickDay: (key: string) => void;
   monthCursor: Date;
   setMonthCursor: (d: Date) => void;
   sessionsByKey: Map<string, SessionRow[]>;
@@ -405,22 +411,23 @@ function BrowseCalendar({
               return (
                 <div
                   key={key}
-                  className={`aspect-square rounded border text-[9px] p-0.5 flex flex-col transition-colors ${inMonth ? "" : "opacity-30"} ${isOver ? "border-blue-400 bg-blue-50" : ""}`}
-                  onDragOver={(e) => { e.preventDefault(); setDragOver(key); }}
+                  className={`aspect-square rounded border text-[9px] p-0.5 flex flex-col transition-colors ${inMonth ? "" : "opacity-30"} ${isOver ? "border-blue-400 bg-blue-50" : ""} ${pickMode ? (pickBlocked(key) ? "opacity-40 cursor-not-allowed" : "cursor-pointer ring-2 ring-amber-400 hover:bg-amber-50") : ""}`}
+                  onClick={pickMode && !pickBlocked(key) ? () => onPickDay(key) : undefined}
+                  onDragOver={(e) => { e.preventDefault(); if (!pickMode) setDragOver(key); }}
                   onDragLeave={() => setDragOver(null)}
-                  onDrop={(e) => { setDragOver(null); onDropFromLeft(e, key); }}
+                  onDrop={(e) => { setDragOver(null); if (pickMode) { e.preventDefault(); return; } onDropFromLeft(e, key); }}
                 >
                   <span className="text-neutral-500 leading-none">{date.getDate()}</span>
                   {daySessions.length > 0 && (
                     <div
-                      draggable
+                      draggable={!pickMode}
                       onDragStart={(e) => {
                         e.dataTransfer.setData("text/plain", JSON.stringify({
                           sessionId: daySessions[0].id,
                           sourceClientId: browseClientId,
                         }));
                       }}
-                      onClick={() => onSelectSession(daySessions[0])}
+                      onClick={() => { if (!pickMode) onSelectSession(daySessions[0]); }}
                       className={`mt-auto truncate rounded px-0.5 py-0.5 text-left cursor-grab active:cursor-grabbing leading-none ${
                         selectedSessionId === daySessions[0].id
                           ? "bg-blue-600 text-white ring-1 ring-blue-300"
@@ -465,6 +472,7 @@ function BrowseClientsView({
     sessionId: string;
     targetDateKey: string;
     occupied: DayConflict[];
+    picked: Relocation[];
     error: string | null;
   } | null>(null);
   const [conflictBusy, setConflictBusy] = useState(false);
@@ -516,16 +524,38 @@ function BrowseClientsView({
     }
     if (result.code === "DAY_OCCUPIED") {
       setCopyStatus(null);
-      setConflict({ sessionId, targetDateKey, occupied: result.occupied ?? [], error: null });
+      setConflict({ sessionId, targetDateKey, occupied: result.occupied ?? [], picked: [], error: null });
       return;
     }
     if (result.code === "RELOCATE_INVALID") {
       setCopyStatus(null);
-      setConflict((c) => (c ? { ...c, error: result.error ?? "Invalid date" } : c));
+      setConflict((c) => (c ? { ...c, picked: [], error: result.error ?? "Invalid date" } : c));
       return;
     }
     setCopyStatus(`Error: ${result.error}`);
     setTimeout(() => setCopyStatus(null), 3000);
+  }
+
+  // Pick mode on the browsed client's calendar (see BuilderLeftPanel for the rules).
+  function pickBlocked(key: string): boolean {
+    if (!conflict) return true;
+    if (key === conflict.targetDateKey) return true;
+    if (conflict.picked.some((p) => p.dateKey === key)) return true;
+    return (sessionsByKey.get(key)?.length ?? 0) > 0;
+  }
+
+  async function handlePickDay(key: string) {
+    if (!conflict || conflictBusy || pickBlocked(key)) return;
+    const current = conflict.occupied[conflict.picked.length];
+    if (!current) return;
+    const picked = [...conflict.picked, { sessionId: current.id, dateKey: key }];
+    if (picked.length < conflict.occupied.length) {
+      setConflict({ ...conflict, picked, error: null });
+      return;
+    }
+    setConflictBusy(true);
+    await copyToSelected(conflict.sessionId, conflict.targetDateKey, picked);
+    setConflictBusy(false);
   }
 
   async function handleDropFromLeft(e: React.DragEvent, targetDateKey: string) {
@@ -614,23 +644,23 @@ function BrowseClientsView({
             {copyStatus}
           </span>
         )}
-        {conflict && (
-          <DayConflictModal
-            mode="copy"
-            targetDateKey={conflict.targetDateKey}
-            occupied={conflict.occupied}
-            busy={conflictBusy}
-            error={conflict.error}
-            onCancel={() => setConflict(null)}
-            onConfirm={async (relocs) => {
-              setConflictBusy(true);
-              await copyToSelected(conflict.sessionId, conflict.targetDateKey, relocs);
-              setConflictBusy(false);
-            }}
-          />
-        )}
       </div>
+      {conflict && conflict.occupied[conflict.picked.length] && (
+        <DayPickBanner
+          mode="copy"
+          targetDateKey={conflict.targetDateKey}
+          label={conflict.occupied[conflict.picked.length].dayLabel}
+          step={conflict.picked.length + 1}
+          total={conflict.occupied.length}
+          error={conflict.error}
+          busy={conflictBusy}
+          onCancel={() => setConflict(null)}
+        />
+      )}
       <BrowseCalendar
+        pickMode={!!conflict}
+        pickBlocked={pickBlocked}
+        onPickDay={handlePickDay}
         monthCursor={localMonth}
         setMonthCursor={setLocalMonth}
         sessionsByKey={sessionsByKey}

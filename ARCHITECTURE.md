@@ -114,8 +114,12 @@ components/coach/ProgramBuilder.tsx        (the orchestrator — no visible UI i
   │      DAY CONFLICT RULE (2026-09-30): if the target day already has a
   │      session (move OR copy, same client, other client, template drop,
   │      right-panel drop), the server action returns code DAY_OCCUPIED
-  │      and `DayConflictModal` forces the coach to pick a new date for
-  │      the existing session(s) — no default, no swap shortcut. The
+  │      and the month calendar (left panel, or the right panel's
+  │      browsed-client calendar for other-client copies) switches to PICK
+  │      MODE: amber banner (`DayPickBanner`) + the coach clicks an empty
+  │      day for the existing session(s) — no default, no swap shortcut.
+  │      Blocked days: the drop target, already-picked days, any occupied
+  │      day (a move frees its own source day). The
   │      chosen dates go back as `relocations`; the server re-validates
   │      (never the same day, never another occupied day) and applies
   │      everything in one transaction. Logic lives in `lib/session-day.ts`
