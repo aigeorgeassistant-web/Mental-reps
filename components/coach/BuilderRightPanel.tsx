@@ -12,6 +12,8 @@ import { TaxonomyPicker } from "@/components/coach/TaxonomyPicker";
 import { MUSCLE_TAXONOMY, EQUIPMENT_TAXONOMY } from "@/lib/taxonomy";
 import { AddExerciseForm } from "@/components/coach/AddExerciseForm";
 import { copySessionToClient } from "@/lib/actions/copy-session-action";
+import { DayConflictModal } from "@/components/coach/DayConflictModal";
+import type { DayConflict, Relocation } from "@/lib/session-day";
 import {
   previewTemplateApplication,
   applyTemplateToClient,
@@ -459,6 +461,13 @@ function BrowseClientsView({
   );
   const [loading, setLoading] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<{
+    sessionId: string;
+    targetDateKey: string;
+    occupied: DayConflict[];
+    error: string | null;
+  } | null>(null);
+  const [conflictBusy, setConflictBusy] = useState(false);
   const [previewSessionId, setPreviewSessionId] = useState<string | null>(null);
   const [previewSession, setPreviewSession] = useState<PreviewSession | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -490,6 +499,35 @@ function BrowseClientsView({
     fetchSessions(selectedClient, localMonth);
   }, [selectedClient?.id, localMonth]);
 
+  // Copy onto the browsed client's calendar. If the day is occupied the
+  // server answers DAY_OCCUPIED and the coach must pick a new day for the
+  // existing session before the copy goes through.
+  async function copyToSelected(sessionId: string, targetDateKey: string, relocations?: Relocation[]) {
+    if (!selectedClient) return;
+    setCopyStatus("Copying…");
+    const result = await copySessionToClient(sessionId, selectedClient.id, targetDateKey, relocations);
+    if (result.success) {
+      setConflict(null);
+      setCopyStatus("✓ Copied");
+      fetchSessions(selectedClient, localMonth);
+      router.refresh();
+      setTimeout(() => setCopyStatus(null), 2000);
+      return;
+    }
+    if (result.code === "DAY_OCCUPIED") {
+      setCopyStatus(null);
+      setConflict({ sessionId, targetDateKey, occupied: result.occupied ?? [], error: null });
+      return;
+    }
+    if (result.code === "RELOCATE_INVALID") {
+      setCopyStatus(null);
+      setConflict((c) => (c ? { ...c, error: result.error ?? "Invalid date" } : c));
+      return;
+    }
+    setCopyStatus(`Error: ${result.error}`);
+    setTimeout(() => setCopyStatus(null), 3000);
+  }
+
   async function handleDropFromLeft(e: React.DragEvent, targetDateKey: string) {
     e.preventDefault();
     if (!selectedClient) return;
@@ -497,17 +535,7 @@ function BrowseClientsView({
       const data = JSON.parse(e.dataTransfer.getData("text/plain"));
       const { sessionId, sourceClientId } = data;
       if (sourceClientId === selectedClient.id) return;
-      setCopyStatus("Copying…");
-      const result = await copySessionToClient(sessionId, selectedClient.id, targetDateKey);
-      if (result.success) {
-        setCopyStatus("✓ Copied");
-        fetchSessions(selectedClient, localMonth);
-        router.refresh();
-        setTimeout(() => setCopyStatus(null), 2000);
-      } else {
-        setCopyStatus(`Error: ${result.error}`);
-        setTimeout(() => setCopyStatus(null), 3000);
-      }
+      await copyToSelected(sessionId, targetDateKey);
     } catch {
       setCopyStatus("Error copying");
       setTimeout(() => setCopyStatus(null), 3000);
@@ -585,6 +613,21 @@ function BrowseClientsView({
           <span className={`text-xs ml-auto shrink-0 ${copyStatus.startsWith("✓") ? "text-green-600" : copyStatus === "Copying…" ? "text-blue-500" : "text-red-500"}`}>
             {copyStatus}
           </span>
+        )}
+        {conflict && (
+          <DayConflictModal
+            mode="copy"
+            targetDateKey={conflict.targetDateKey}
+            occupied={conflict.occupied}
+            busy={conflictBusy}
+            error={conflict.error}
+            onCancel={() => setConflict(null)}
+            onConfirm={async (relocs) => {
+              setConflictBusy(true);
+              await copyToSelected(conflict.sessionId, conflict.targetDateKey, relocs);
+              setConflictBusy(false);
+            }}
+          />
         )}
       </div>
       <BrowseCalendar

@@ -110,7 +110,21 @@ components/coach/ProgramBuilder.tsx        (the orchestrator — no visible UI i
   │      Drag chip to another day, SAME client → Move/Copy confirmation
   │      popup (Copy never carries LoggedSet/client notes — see
   │      `copySessionToClient` action). Different client → still copies
-  │      immediately, no popup.
+  │      immediately, no Move/Copy popup.
+  │      DAY CONFLICT RULE (2026-09-30): if the target day already has a
+  │      session (move OR copy, same client, other client, template drop,
+  │      right-panel drop), the server action returns code DAY_OCCUPIED
+  │      and `DayConflictModal` forces the coach to pick a new date for
+  │      the existing session(s) — no default, no swap shortcut. The
+  │      chosen dates go back as `relocations`; the server re-validates
+  │      (never the same day, never another occupied day) and applies
+  │      everything in one transaction. Logic lives in `lib/session-day.ts`
+  │      (`resolveDayConflict`, `setSessionDate`). Move also shifts
+  │      LoggedSet.date + CheckIn.date so PR chronology follows the
+  │      session. Calendar only draws daySessions[0]; a day with >1
+  │      session (legacy duplicates) shows an amber "⚠ N sessions" tag.
+  │      After move/copy, ProgramBuilder `handleSessionsChanged` refetches
+  │      green-dot keys + the open session.
   │    - Week: same sessions grouped by weekNumber. Also hosts the
   │      Template Builder (a separate mode, toggled by "+ Build Template").
   │    - Exercises: search + taxonomy filter (muscle/equipment) + add-new.

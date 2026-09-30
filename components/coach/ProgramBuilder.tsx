@@ -151,6 +151,17 @@ export function ProgramBuilder({
     }
   }
 
+  // After a move/copy: refresh the green dots and re-fetch the open session
+  // (with its loggedSets) so the editor never falls back to the server-prop
+  // version that has no logged sets.
+  async function handleSessionsChanged() {
+    refreshLoggedKeys();
+    if (selectedSessionId) {
+      const data = await fetchSession(selectedSessionId);
+      if (data) setFetchedClientSession(data);
+    }
+  }
+
   // ─── Exercise add — delegated to SessionEditor ──────────────────────────────────────────
 
   function handleSelectExercise(exerciseId: string) {
@@ -188,6 +199,7 @@ export function ProgramBuilder({
         onRequestAddExercise={() => { setShowAddExercise(true); setSelectedExerciseId(null); }}
         onSelectTemplateSession={handleSelectTemplateSession}
         onExitTemplateMode={handleExitTemplateMode}
+        onSessionsChanged={handleSessionsChanged}
       />
 
       {sessionForEditor ? (

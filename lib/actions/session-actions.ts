@@ -11,6 +11,16 @@
 
 import { db } from "../db";
 import { getCurrentRole } from "@/lib/role";
+import type { Prisma } from "@prisma/client";
+import {
+  dayRange,
+  isDateKey,
+  parseDateKey,
+  resolveDayConflict,
+  setSessionDate,
+  type DayActionResult,
+  type Relocation,
+} from "@/lib/session-day";
 
 export async function createSessionOnDate(clientId: string, dateISO: string) {
   let program = await db.program.findFirst({
@@ -43,31 +53,49 @@ export async function createSessionOnDate(clientId: string, dateISO: string) {
 
 export async function moveSessionToDate(
   sessionId: string,
-  targetDateKey: string // "YYYY-MM-DD"
-): Promise<{ success: boolean; error?: string }> {
+  targetDateKey: string, // "YYYY-MM-DD"
+  relocations?: Relocation[] // required when the target day already has a session
+): Promise<DayActionResult> {
   try {
     const { role, coach } = await getCurrentRole();
     if (role !== "coach" || !coach) {
       return { success: false, error: "Unauthorized" };
     }
+    if (!isDateKey(targetDateKey)) return { success: false, error: "Invalid date" };
 
     const session = await db.session.findFirst({
       where: {
         id: sessionId,
         program: { client: { coachId: coach.id } },
       },
+      select: { id: true, programId: true, date: true },
     });
     if (!session) return { success: false, error: "Session not found" };
 
-    const [y, m, d] = targetDateKey.split("-").map(Number);
-    const targetDate = new Date(y, m - 1, d, 12, 0, 0);
+    // Already on that day — nothing to do.
+    const range = dayRange(targetDateKey);
+    if (session.date && session.date >= range.gte && session.date < range.lt) {
+      return { success: true };
+    }
 
-    await db.session.update({
-      where: { id: sessionId },
-      data: { date: targetDate },
-    });
-
-    return { success: true };
+    const programId = session.programId;
+    return await db.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const res = await resolveDayConflict(tx, {
+          programId,
+          targetDateKey,
+          excludeSessionId: sessionId,
+          relocations,
+        });
+        if (!res.ok) return res.result;
+        for (const m of res.moves) {
+          await setSessionDate(tx, m.sessionId, parseDateKey(m.dateKey));
+        }
+        await setSessionDate(tx, sessionId, parseDateKey(targetDateKey));
+        return { success: true } as DayActionResult;
+      },
+      { timeout: 20000, maxWait: 10000 }
+    );
   } catch (err: any) {
     return { success: false, error: err.message ?? "Unknown error" };
   }

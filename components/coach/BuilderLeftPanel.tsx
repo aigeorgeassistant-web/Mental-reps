@@ -15,6 +15,8 @@ import {
   type TemplateSessionRow,
 } from "@/lib/actions/template-actions";
 import { ClientProfileModal } from "./ClientProfileModal";
+import { DayConflictModal } from "./DayConflictModal";
+import type { DayConflict, Relocation } from "@/lib/session-day";
 
 type ClientWithPrograms = Client & {
   programs: (Program & {
@@ -61,6 +63,7 @@ export function BuilderLeftPanel({
   onSelectTemplateSession,
   onExitTemplateMode,
   onRequestAddExercise,
+  onSessionsChanged,
 }: {
   clientId: string;
   client: ClientWithPrograms;
@@ -75,6 +78,7 @@ export function BuilderLeftPanel({
   onSelectTemplateSession: (sessionId: string) => void;
   onExitTemplateMode: () => void;
   onRequestAddExercise: () => void;
+  onSessionsChanged: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("month");
   const [search, setSearch] = useState("");
@@ -84,6 +88,14 @@ export function BuilderLeftPanel({
   const [isPending, startTransition] = useTransition();
   const [dropStatus, setDropStatus] = useState<string | null>(null);
   const [pendingDrop, setPendingDrop] = useState<{ sessionId: string; targetDateKey: string } | null>(null);
+  const [conflict, setConflict] = useState<{
+    kind: "move" | "copy";
+    sessionId: string;
+    targetDateKey: string;
+    occupied: DayConflict[];
+    error: string | null;
+  } | null>(null);
+  const [conflictBusy, setConflictBusy] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -148,6 +160,42 @@ export function BuilderLeftPanel({
     });
   }
 
+  // Runs a move or copy onto `targetDateKey`. If that day already has a
+  // session the server answers DAY_OCCUPIED and we open the conflict modal
+  // (the coach must pick a new day for the existing session).
+  async function runDropAction(
+    kind: "move" | "copy",
+    sessionId: string,
+    targetDateKey: string,
+    relocations?: Relocation[]
+  ) {
+    setDropStatus(kind === "move" ? "Moving…" : "Copying…");
+    const result =
+      kind === "move"
+        ? await moveSessionToDate(sessionId, targetDateKey, relocations)
+        : await copySessionToClient(sessionId, clientId, targetDateKey, relocations);
+    if (result.success) {
+      setConflict(null);
+      router.refresh();
+      onSessionsChanged();
+      setDropStatus(kind === "move" ? "✓ Moved" : "✓ Copied");
+      setTimeout(() => setDropStatus(null), 2000);
+      return;
+    }
+    if (result.code === "DAY_OCCUPIED") {
+      setDropStatus(null);
+      setConflict({ kind, sessionId, targetDateKey, occupied: result.occupied ?? [], error: null });
+      return;
+    }
+    if (result.code === "RELOCATE_INVALID") {
+      setDropStatus(null);
+      setConflict((c) => (c ? { ...c, error: result.error ?? "Invalid date" } : c));
+      return;
+    }
+    setDropStatus(`Error: ${result.error}`);
+    setTimeout(() => setDropStatus(null), 3000);
+  }
+
   function handleDropOnCalendar(sessionId: string, sourceClientId: string, targetDateKey: string) {
     if (deleteMode) return;
     if (sourceClientId === clientId) {
@@ -155,51 +203,22 @@ export function BuilderLeftPanel({
       setPendingDrop({ sessionId, targetDateKey });
       return;
     }
-    // Different client — unchanged behavior: always copies.
-    (async () => {
-      setDropStatus("Copying…");
-      const result = await copySessionToClient(sessionId, clientId, targetDateKey);
-      if (result.success) {
-        router.refresh();
-        setDropStatus("✓ Copied");
-        setTimeout(() => setDropStatus(null), 2000);
-      } else {
-        setDropStatus(`Error: ${result.error}`);
-        setTimeout(() => setDropStatus(null), 3000);
-      }
-    })();
+    // Different client / template — always copies.
+    runDropAction("copy", sessionId, targetDateKey);
   }
 
   async function confirmMoveDrop() {
     if (!pendingDrop) return;
     const { sessionId, targetDateKey } = pendingDrop;
     setPendingDrop(null);
-    setDropStatus("Moving…");
-    const result = await moveSessionToDate(sessionId, targetDateKey);
-    if (result.success) {
-      router.refresh();
-      setDropStatus("✓ Moved");
-      setTimeout(() => setDropStatus(null), 2000);
-    } else {
-      setDropStatus(`Error: ${result.error}`);
-      setTimeout(() => setDropStatus(null), 3000);
-    }
+    await runDropAction("move", sessionId, targetDateKey);
   }
 
   async function confirmCopyDrop() {
     if (!pendingDrop) return;
     const { sessionId, targetDateKey } = pendingDrop;
     setPendingDrop(null);
-    setDropStatus("Copying…");
-    const result = await copySessionToClient(sessionId, clientId, targetDateKey);
-    if (result.success) {
-      router.refresh();
-      setDropStatus("✓ Copied");
-      setTimeout(() => setDropStatus(null), 2000);
-    } else {
-      setDropStatus(`Error: ${result.error}`);
-      setTimeout(() => setDropStatus(null), 3000);
-    }
+    await runDropAction("copy", sessionId, targetDateKey);
   }
 
   function handleChipClick(sessionId: string) {
@@ -514,6 +533,21 @@ export function BuilderLeftPanel({
         </div>
       </div>
     )}
+    {conflict && (
+      <DayConflictModal
+        mode={conflict.kind}
+        targetDateKey={conflict.targetDateKey}
+        occupied={conflict.occupied}
+        busy={conflictBusy}
+        error={conflict.error}
+        onCancel={() => setConflict(null)}
+        onConfirm={async (relocs) => {
+          setConflictBusy(true);
+          await runDropAction(conflict.kind, conflict.sessionId, conflict.targetDateKey, relocs);
+          setConflictBusy(false);
+        }}
+      />
+    )}
     {showProfileModal && (
       <ClientProfileModal
         client={{
@@ -701,6 +735,11 @@ function MonthCalendar({ monthCursor, setMonthCursor, sessionsByDateKey, loggedD
                     title={daySessions[0].dayLabel}>
                     {deleteMode && selectedIds.includes(daySessions[0].id) ? "✓ " : ""}{daySessions[0].dayLabel}
                   </button>
+                  {daySessions.length > 1 && (
+                    <span className="text-[9px] text-amber-600" title="More than one session on this day — move one to another day">
+                      ⚠ {daySessions.length} sessions
+                    </span>
+                  )}
                 </div>
               ) : (
                 <button onClick={() => onDayClick(key)} disabled={disabled || deleteMode}

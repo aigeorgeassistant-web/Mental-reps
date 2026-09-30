@@ -2,19 +2,30 @@
 
 import { db } from "@/lib/db";
 import { getCurrentRole } from "@/lib/role";
+import type { Prisma } from "@prisma/client";
+import {
+  isDateKey,
+  parseDateKey,
+  resolveDayConflict,
+  setSessionDate,
+  type DayActionResult,
+  type Relocation,
+} from "@/lib/session-day";
 
 // Updated: also allows copying FROM template sessions (clientId: null, isTemplate: true)
 // so dragging a template day to a client calendar works.
 export async function copySessionToClient(
   sourceSessionId: string,
   targetClientId: string,
-  targetDateKey: string // "YYYY-MM-DD"
-): Promise<{ success: boolean; error?: string }> {
+  targetDateKey: string, // "YYYY-MM-DD"
+  relocations?: Relocation[] // required when the target day already has a session
+): Promise<DayActionResult> {
   try {
     const { role, coach } = await getCurrentRole();
     if (role !== "coach" || !coach) {
       return { success: false, error: "Unauthorized" };
     }
+    if (!isDateKey(targetDateKey)) return { success: false, error: "Invalid date" };
 
     // Allow source from: client programs OR template programs owned by this coach
     const source = await db.session.findFirst({
@@ -53,45 +64,58 @@ export async function copySessionToClient(
       });
     }
 
-    const [y, m, d] = targetDateKey.split("-").map(Number);
-    const targetDate = new Date(y, m - 1, d, 12, 0, 0);
+    const programId = program.id;
+    const sourceExercises = source.sessionExercises;
+    const sourceDayLabel = source.dayLabel;
+    const sourceOrder = source.order;
+    const sourceWeek = source.weekNumber;
 
-    const newSession = await db.session.create({
-      data: {
-        programId: program.id,
-        date: targetDate,
-        dayLabel: source.dayLabel,
-        order: source.order,
-        weekNumber: source.weekNumber,
+    return await db.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const res = await resolveDayConflict(tx, { programId, targetDateKey, relocations });
+        if (!res.ok) return res.result;
+        for (const mv of res.moves) {
+          await setSessionDate(tx, mv.sessionId, parseDateKey(mv.dateKey));
+        }
+
+        const newSession = await tx.session.create({
+          data: {
+            programId,
+            date: parseDateKey(targetDateKey),
+            dayLabel: sourceDayLabel,
+            order: sourceOrder,
+            weekNumber: sourceWeek,
+          },
+        });
+
+        if (sourceExercises.length > 0) {
+          await tx.sessionExercise.createMany({
+            data: sourceExercises.map((se) => ({
+              sessionId: newSession.id,
+              exerciseId: se.exerciseId,
+              order: se.order,
+              sets: se.sets,
+              reps: se.reps,
+              repsMax: se.repsMax,
+              setType: se.setType,
+              loadType: se.loadType,
+              loadValue: se.loadValue,
+              loadUnit: se.loadUnit,
+              coachNote: se.coachNote,
+              target: se.target,
+              groupId: se.groupId,
+              groupColor: se.groupColor,
+              isRandomizerSlot: se.isRandomizerSlot,
+              slotPoolExerciseIds: se.slotPoolExerciseIds,
+              rpeEnabled: se.rpeEnabled,
+              restSeconds: se.restSeconds,
+            })),
+          });
+        }
+        return { success: true } as DayActionResult;
       },
-    });
-
-    if (source.sessionExercises.length > 0) {
-      await db.sessionExercise.createMany({
-        data: source.sessionExercises.map((se) => ({
-          sessionId: newSession.id,
-          exerciseId: se.exerciseId,
-          order: se.order,
-          sets: se.sets,
-          reps: se.reps,
-          repsMax: se.repsMax,
-          setType: se.setType,
-          loadType: se.loadType,
-          loadValue: se.loadValue,
-          loadUnit: se.loadUnit,
-          coachNote: se.coachNote,
-          target: se.target,
-          groupId: se.groupId,
-          groupColor: se.groupColor,
-          isRandomizerSlot: se.isRandomizerSlot,
-          slotPoolExerciseIds: se.slotPoolExerciseIds,
-          rpeEnabled: se.rpeEnabled,
-          restSeconds: se.restSeconds,
-        })),
-      });
-    }
-
-    return { success: true };
+      { timeout: 20000, maxWait: 10000 }
+    );
   } catch (err: any) {
     return { success: false, error: err.message ?? "Unknown error" };
   }
